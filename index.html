@@ -1,0 +1,1309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dead Vibe</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0e0c09;
+      --surface:    #1a1710;
+      --surface2:   #232018;
+      --border:     #38321e;
+      --amber:      #c8890a;
+      --amber-dim:  #8a5f07;
+      --amber-glow: #e8a820;
+      --red:        #a83232;
+      --text:       #e2d8c4;
+      --muted:      #7a7060;
+      --radius:     12px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Georgia', serif;
+      min-height: 100vh;
+      padding-bottom: 80px;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      text-align: center;
+      padding: 48px 20px 30px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #1a1200 0%, var(--bg) 100%);
+    }
+
+    h1 {
+      font-size: 2.6rem;
+      color: var(--amber-glow);
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+      text-shadow: 0 0 40px rgba(200,137,10,0.2);
+    }
+
+    header p {
+      color: var(--muted);
+      font-size: 0.95rem;
+      font-style: italic;
+    }
+
+    /* ── Main ───────────────────────────────────────────────── */
+    main {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+
+    /* ── Progress ───────────────────────────────────────────── */
+    #progress-wrap {
+      margin-bottom: 30px;
+      display: none;
+    }
+
+    .progress-bar-track {
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--amber);
+      border-radius: 2px;
+      transition: width 0.35s ease;
+    }
+
+    .progress-label {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── Screens ────────────────────────────────────────────── */
+    .screen { display: none; }
+    .screen.active {
+      display: block;
+      animation: fadeUp 0.35s ease forwards;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Screen Card wrapper ────────────────────────────────── */
+    .screen-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px 28px 26px;
+    }
+
+    .screen-q {
+      font-size: 1.45rem;
+      color: var(--text);
+      margin-bottom: 6px;
+      line-height: 1.3;
+    }
+
+    .screen-sub {
+      font-size: 0.88rem;
+      color: var(--muted);
+      font-style: italic;
+      margin-bottom: 26px;
+      line-height: 1.5;
+    }
+
+    /* ── Path Tiles (Home Screen — large) ───────────────────── */
+    .path-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .path-tile {
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      padding: 22px 24px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: flex-start;
+      gap: 18px;
+    }
+
+    .path-tile:hover {
+      border-color: var(--amber-dim);
+      background: #1e1c14;
+      transform: translateY(-2px);
+    }
+
+    .path-icon {
+      font-size: 2rem;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .path-text {}
+
+    .path-label {
+      font-size: 1.15rem;
+      color: var(--text);
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+
+    .path-desc {
+      font-size: 0.85rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .path-date-badge {
+      margin-top: 6px;
+      display: inline-block;
+      background: rgba(200,137,10,0.12);
+      border: 1px solid var(--amber-dim);
+      color: var(--amber);
+      font-size: 0.75rem;
+      padding: 2px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Option Tiles (quiz steps — smaller, 2-col grid) ────── */
+    .option-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 11px;
+      margin-bottom: 4px;
+    }
+
+    .option-grid.cols-1 { grid-template-columns: 1fr; }
+
+    .option-tile {
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      cursor: pointer;
+      transition: all 0.18s;
+      text-align: left;
+    }
+
+    .option-tile:hover {
+      border-color: var(--amber-dim);
+      background: #1e1c14;
+      transform: translateY(-1px);
+    }
+
+    .option-tile.selected {
+      border-color: var(--amber);
+      background: rgba(200,137,10,0.08);
+      box-shadow: 0 0 0 1px var(--amber);
+    }
+
+    .tile-icon { font-size: 1.3rem; display: block; margin-bottom: 7px; }
+    .tile-label { font-size: 0.97rem; color: var(--text); font-weight: bold; margin-bottom: 2px; }
+    .tile-desc  { font-size: 0.76rem; color: var(--muted); line-height: 1.4; }
+
+    /* ── Mini Pref Groups (deep prefs screen) ────────────────── */
+    .pref-group { margin-bottom: 24px; }
+    .pref-group:last-child { margin-bottom: 0; }
+
+    .pref-group-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--amber);
+      margin-bottom: 10px;
+    }
+
+    .mini-tile-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .mini-tile {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 0.83rem;
+      color: var(--muted);
+      transition: all 0.18s;
+    }
+
+    .mini-tile:hover { border-color: var(--amber-dim); color: var(--text); }
+    .mini-tile.selected {
+      border-color: var(--amber);
+      color: var(--amber-glow);
+      background: rgba(200,137,10,0.08);
+    }
+
+    /* ── Navigation Buttons ──────────────────────────────────── */
+    .nav-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 24px;
+      gap: 12px;
+    }
+
+    .btn-back {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-family: 'Georgia', serif;
+      font-size: 0.88rem;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.18s;
+    }
+
+    .btn-back:hover { border-color: var(--muted); color: var(--text); }
+
+    .btn-next {
+      flex: 1;
+      max-width: 260px;
+      background: linear-gradient(135deg, #8a5f07, #c8890a);
+      color: #fff8e8;
+      font-family: 'Georgia', serif;
+      font-size: 1rem;
+      font-weight: bold;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.18s;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+
+    .btn-next:hover:not(:disabled) { background: linear-gradient(135deg, #a06e08, #d99910); transform: translateY(-1px); }
+    .btn-next:disabled { opacity: 0.38; cursor: not-allowed; }
+
+    /* ── Textarea ────────────────────────────────────────────── */
+    textarea {
+      width: 100%;
+      min-height: 100px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'Georgia', serif;
+      font-size: 1rem;
+      padding: 14px;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.2s;
+      margin-bottom: 6px;
+    }
+
+    textarea:focus { border-color: var(--amber-dim); }
+    textarea::placeholder { color: var(--muted); font-style: italic; }
+
+    .skip-note {
+      font-size: 0.8rem;
+      color: var(--muted);
+      font-style: italic;
+      text-align: center;
+      display: block;
+    }
+
+    /* ── Loading ─────────────────────────────────────────────── */
+    #loading {
+      display: none;
+      text-align: center;
+      padding: 64px 20px;
+      color: var(--muted);
+    }
+
+    .spinner {
+      width: 44px; height: 44px;
+      border: 3px solid var(--border);
+      border-top-color: var(--amber);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 22px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading p { font-style: italic; font-size: 0.95rem; }
+
+    /* ── Error ───────────────────────────────────────────────── */
+    #error-box {
+      display: none;
+      background: rgba(168,50,50,0.12);
+      border: 1px solid var(--red);
+      border-radius: var(--radius);
+      padding: 18px 22px;
+      margin-bottom: 20px;
+      color: #e08080;
+      font-size: 0.92rem;
+    }
+
+    /* ── Results Area ────────────────────────────────────────── */
+    #results-area { display: none; }
+
+    .results-toprow {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .results-eyebrow {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--amber);
+    }
+
+    .btn-restart {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-family: 'Georgia', serif;
+      font-size: 0.82rem;
+      padding: 7px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.18s;
+    }
+
+    .btn-restart:hover { border-color: var(--amber-dim); color: var(--amber); }
+
+    /* ── Vibe Interp Banner ──────────────────────────────────── */
+    #vibe-interp {
+      background: var(--surface);
+      border-left: 3px solid var(--amber);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 18px 22px;
+      margin-bottom: 26px;
+      font-style: italic;
+      line-height: 1.65;
+      animation: fadeUp 0.4s ease forwards;
+    }
+
+    #vibe-interp strong {
+      display: block;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--amber);
+      margin-bottom: 8px;
+      font-style: normal;
+    }
+
+    /* ── Show Cards ──────────────────────────────────────────── */
+    .cards { display: flex; flex-direction: column; gap: 20px; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      opacity: 0;
+      animation: fadeUp 0.4s ease forwards;
+    }
+
+    .card:nth-child(1) { animation-delay: 0.05s; }
+    .card:nth-child(2) { animation-delay: 0.15s; }
+    .card:nth-child(3) { animation-delay: 0.25s; }
+    .card:nth-child(4) { animation-delay: 0.35s; }
+    .card:nth-child(5) { animation-delay: 0.45s; }
+
+    .card-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 20px 22px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .rank {
+      min-width: 34px; height: 34px;
+      background: var(--amber-dim);
+      color: #fff8e8;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.85rem; font-weight: bold;
+      flex-shrink: 0; margin-top: 2px;
+    }
+
+    .card-title-wrap { flex: 1; }
+    .show-date { font-size: 1.18rem; color: var(--amber-glow); font-weight: bold; margin-bottom: 3px; }
+    .show-venue { font-size: 0.87rem; color: var(--muted); line-height: 1.4; }
+
+    .match-wrap { text-align: right; flex-shrink: 0; }
+    .match-pct { font-size: 1.45rem; font-weight: bold; color: var(--amber-glow); line-height: 1; }
+    .match-lbl { font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .match-bar { width: 58px; height: 3px; background: var(--surface2); border-radius: 2px; margin-top: 5px; overflow: hidden; }
+    .match-fill { height: 100%; background: linear-gradient(90deg, var(--amber-dim), var(--amber-glow)); border-radius: 2px; }
+
+    .card-body { padding: 18px 22px; }
+
+    .era-tag {
+      display: inline-block;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--amber);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 3px 10px;
+      border-radius: 20px;
+      margin-bottom: 14px;
+    }
+
+    .pitch { color: var(--text); line-height: 1.65; margin-bottom: 14px; font-size: 0.95rem; }
+
+    .moments-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 8px; }
+
+    .moments { list-style: none; }
+    .moments li {
+      font-size: 0.86rem; color: #b0a890;
+      padding: 5px 0 5px 18px;
+      position: relative; line-height: 1.4;
+      border-bottom: 1px solid var(--border);
+    }
+    .moments li:last-child { border-bottom: none; }
+    .moments li::before { content: "⚡"; position: absolute; left: 0; font-size: 0.7rem; top: 7px; }
+
+    .card-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 22px;
+      background: var(--surface2);
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+
+    .rec-info { font-size: 0.77rem; color: var(--muted); line-height: 1.5; }
+
+    .rec-badge {
+      display: inline-block;
+      padding: 2px 8px; border-radius: 4px;
+      font-size: 0.67rem; font-weight: bold;
+      letter-spacing: 0.06em; margin-bottom: 2px;
+    }
+    .sbd  { background: rgba(74,124,89,0.25);  color: #7bc99a; border: 1px solid rgba(74,124,89,0.4); }
+    .aud  { background: rgba(100,80,50,0.25);  color: #c8a870; border: 1px solid rgba(100,80,50,0.4); }
+    .other{ background: rgba(80,80,100,0.25);  color: #a0a8c8; border: 1px solid rgba(80,80,100,0.4); }
+
+    .listen-btn {
+      display: inline-flex;
+      align-items: center; gap: 6px;
+      padding: 8px 16px;
+      background: transparent;
+      border: 1px solid var(--amber-dim);
+      color: var(--amber);
+      font-family: 'Georgia', serif;
+      font-size: 0.82rem;
+      border-radius: 6px;
+      text-decoration: none;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .listen-btn:hover { background: rgba(200,137,10,0.1); border-color: var(--amber); color: var(--amber-glow); }
+
+    .caveat {
+      font-size: 0.78rem; color: #c89060;
+      font-style: italic;
+      padding: 10px 22px;
+      border-top: 1px solid var(--border);
+      background: rgba(200,100,0,0.05);
+    }
+    .caveat::before { content: "⚠ "; }
+
+    /* ── Deeper Cut ──────────────────────────────────────────── */
+    #deeper-cut {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-top: 22px;
+      animation: fadeUp 0.4s ease forwards;
+    }
+    #deeper-cut strong {
+      display: block;
+      font-size: 0.7rem; text-transform: uppercase;
+      letter-spacing: 0.1em; color: var(--amber);
+      margin-bottom: 10px;
+    }
+    #deeper-cut p { color: var(--muted); font-style: italic; font-size: 0.92rem; line-height: 1.6; }
+
+    /* ── Footer ──────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      margin-top: 60px; padding: 20px;
+      color: var(--muted);
+      font-size: 0.76rem;
+      border-top: 1px solid var(--border);
+    }
+    footer a { color: var(--amber-dim); text-decoration: none; }
+    footer a:hover { color: var(--amber); }
+
+    /* ── Responsive ──────────────────────────────────────────── */
+    @media (max-width: 560px) {
+      h1 { font-size: 2rem; }
+      .option-grid { grid-template-columns: 1fr; }
+      .card-head { flex-wrap: wrap; }
+      .match-wrap { order: -1; margin-left: auto; }
+      .screen-card { padding: 22px 16px 18px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Dead Vibe</h1>
+  <p>Find your show for tonight.</p>
+</header>
+
+<main>
+
+  <!-- ── Progress Bar ──────────────────────────────────────────── -->
+  <div id="progress-wrap">
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
+    </div>
+    <div class="progress-label" id="progress-label"></div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- SCREEN: Home — choose your path                             -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="screen active" id="screen-home">
+    <div class="screen-card">
+      <div class="screen-q">What brings you here tonight?</div>
+      <div class="screen-sub">Choose how you want to find your show</div>
+      <div class="path-grid">
+
+        <div class="path-tile" onclick="startPath('mood')">
+          <span class="path-icon">🎧</span>
+          <div class="path-text">
+            <div class="path-label">Describe my mood</div>
+            <div class="path-desc">Answer a few questions and we'll match you with the perfect show for how you're feeling right now.</div>
+          </div>
+        </div>
+
+        <div class="path-tile" onclick="startPath('history')">
+          <span class="path-icon">📅</span>
+          <div class="path-text">
+            <div class="path-label">Today in Dead History</div>
+            <div class="path-desc">Find shows that the Grateful Dead played on this exact date in history — any year, ranked by how good they were.</div>
+            <span class="path-date-badge" id="today-badge"></span>
+          </div>
+        </div>
+
+        <div class="path-tile" onclick="startPath('owner')">
+          <span class="path-icon">🎸</span>
+          <div class="path-text">
+            <div class="path-label">Personal Favorites</div>
+            <div class="path-desc">No time for questions? Get a hand-picked recommendation from the site owner's personal list of 25 essential shows.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- SCREEN: Experience level                                    -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="screen" id="screen-experience">
+    <div class="screen-card">
+      <div class="screen-q">How familiar are you with the Dead?</div>
+      <div class="screen-sub">This helps us calibrate how deep to dig</div>
+      <div class="option-grid">
+        <div class="option-tile" data-group="experience" data-value="newcomer" onclick="pick(this)">
+          <span class="tile-icon">🌱</span>
+          <div class="tile-label">Brand new</div>
+          <div class="tile-desc">I've barely heard them — give me a gateway show</div>
+        </div>
+        <div class="option-tile" data-group="experience" data-value="casual" onclick="pick(this)">
+          <span class="tile-icon">👂</span>
+          <div class="tile-label">Getting into it</div>
+          <div class="tile-desc">I know a few songs and want to go deeper</div>
+        </div>
+        <div class="option-tile" data-group="experience" data-value="fan" onclick="pick(this)">
+          <span class="tile-icon">🎸</span>
+          <div class="tile-label">Know the classics</div>
+          <div class="tile-desc">Cornell, Veneta, Europe '72 — I want something new</div>
+        </div>
+        <div class="option-tile" data-group="experience" data-value="deadhead" onclick="pick(this)">
+          <span class="tile-icon">🌀</span>
+          <div class="tile-label">Deep in the catalog</div>
+          <div class="tile-desc">Dozens of shows heard — skip the obvious</div>
+        </div>
+        <div class="option-tile" data-group="experience" data-value="scholar" onclick="pick(this)">
+          <span class="tile-icon">📜</span>
+          <div class="tile-label">Scholar</div>
+          <div class="tile-desc">Hundreds of shows — find me something I've overlooked</div>
+        </div>
+      </div>
+      <div class="nav-row">
+        <button class="btn-back" onclick="goBack()">← Back</button>
+        <button class="btn-next" id="next-experience" disabled onclick="advance()">Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- SCREEN: Vibe — Simple (new / casual listeners)             -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="screen" id="screen-vibe-simple">
+    <div class="screen-card">
+      <div class="screen-q">What sounds good right now?</div>
+      <div class="screen-sub">Pick the vibe that fits tonight</div>
+      <div class="option-grid">
+        <div class="option-tile" data-group="vibe" data-value="easy to get into, accessible, not too long" onclick="pick(this)">
+          <span class="tile-icon">🌅</span>
+          <div class="tile-label">Easy & Accessible</div>
+          <div class="tile-desc">Perfect for someone just getting started</div>
+        </div>
+        <div class="option-tile" data-group="vibe" data-value="mind-expanding, psychedelic, cosmic and exploratory" onclick="pick(this)">
+          <span class="tile-icon">🌌</span>
+          <div class="tile-label">Mind-expanding</div>
+          <div class="tile-desc">Trippy, spacy, show me what they're really about</div>
+        </div>
+        <div class="option-tile" data-group="vibe" data-value="upbeat, joyful, danceable and fun" onclick="pick(this)">
+          <span class="tile-icon">☀️</span>
+          <div class="tile-label">Upbeat & Fun</div>
+          <div class="tile-desc">Something I can move to and feel good</div>
+        </div>
+        <div class="option-tile" data-group="vibe" data-value="emotional, moving, slow-building and cathartic" onclick="pick(this)">
+          <span class="tile-icon">💧</span>
+          <div class="tile-label">Emotional & Moving</div>
+          <div class="tile-desc">I want something that hits me in the chest</div>
+        </div>
+      </div>
+      <div class="nav-row">
+        <button class="btn-back" onclick="goBack()">← Back</button>
+        <button class="btn-next" id="next-vibe-simple" disabled onclick="advance()">Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- SCREEN: Era (experienced listeners)                        -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="screen" id="screen-era">
+    <div class="screen-card">
+      <div class="screen-q">Which era are you drawn to?</div>
+      <div class="screen-sub">Or let us pick the best regardless of year</div>
+      <div class="option-grid">
+        <div class="option-tile" data-group="era" data-value="" onclick="pick(this)">
+          <span class="tile-icon">🎲</span>
+          <div class="tile-label">Surprise me</div>
+          <div class="tile-desc">Any era — best match wins</div>
+        </div>
+        <div class="option-tile" data-group="era" data-value="Psychedelic Peak (1968–1970)" onclick="pick(this)">
+          <span class="tile-icon">🔮</span>
+          <div class="tile-label">Psychedelic Peak</div>
+          <div class="tile-desc">1968–1970 · Dark Stars, cosmic improv</div>
+        </div>
+        <div class="option-tile" data-group="era" data-value="Americana Pivot (1970–1971)" onclick="pick(this)">
+          <span class="tile-icon">🪕</span>
+          <div class="tile-label">Americana Pivot</div>
+          <div class="tile-desc">1970–1971 · Workingman's Dead era, Pigpen</div>
+        </div>
+        <div class="option-tile" data-group="era" data-value="Jazz Fusion Zenith (1972–1974)" onclick="pick(this)">
+          <span class="tile-icon">🌟</span>
+          <div class="tile-label">Golden Years</div>
+          <div class="tile-desc">1972–1974 · Keith era, Wall of Sound</div>
+        </div>
+        <div class="option-tile" data-group="era" data-value="Hiatus & Return (1975–1977)" onclick="pick(this)">
+          <span class="tile-icon">⚡</span>
+          <div class="tile-label">'77 Sweet Spot</div>
+          <div class="tile-desc">1975–1977 · Cornell era, tight and free</div>
+        </div>
+        <div class="option-tile" data-group="era" data-value="Brent Mydland Era (1979–1990)" onclick="pick(this)">
+          <span class="tile-icon">🔥</span>
+          <div class="tile-label">Brent Era</div>
+          <div class="tile-desc">1979–1990 · Grit, soul, emotional peaks</div>
+        </div>
+        <div class="option-tile" data-group="era" data-value="Final Chapter (1990–1995)" onclick="pick(this)">
+          <span class="tile-icon">🕯️</span>
+          <div class="tile-label">Final Chapter</div>
+          <div class="tile-desc">1990–1995 · Hornsby years, bittersweet</div>
+        </div>
+      </div>
+      <div class="nav-row">
+        <button class="btn-back" onclick="goBack()">← Back</button>
+        <button class="btn-next" id="next-era" disabled onclick="advance()">Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- SCREEN: Vibe — Deep (experienced listeners)                -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="screen" id="screen-vibe-deep">
+    <div class="screen-card">
+      <div class="screen-q">What's the mood tonight?</div>
+      <div class="screen-sub">Pick the one that fits where you are right now</div>
+      <div class="option-grid">
+        <div class="option-tile" data-group="vibe" data-value="dark and psychedelic, deep space improv" onclick="pick(this)">
+          <span class="tile-icon">🌌</span>
+          <div class="tile-label">Dark & Psychedelic</div>
+          <div class="tile-desc">Late night, inner space, Dark Stars</div>
+        </div>
+        <div class="option-tile" data-group="vibe" data-value="upbeat, joyful, danceable and fun" onclick="pick(this)">
+          <span class="tile-icon">☀️</span>
+          <div class="tile-label">Upbeat & Joyful</div>
+          <div class="tile-desc">Dancing, road trip, summer energy</div>
+        </div>
+        <div class="option-tile" data-group="vibe" data-value="emotional and cathartic, melancholy into hope" onclick="pick(this)">
+          <span class="tile-icon">💧</span>
+          <div class="tile-label">Emotional & Deep</div>
+          <div class="tile-desc">Wharf Rat, Morning Dew, heavy feelings</div>
+        </div>
+        <div class="option-tile" data-group="vibe" data-value="mellow, spacious, laid back and gentle" onclick="pick(this)">
+          <span class="tile-icon">🍃</span>
+          <div class="tile-label">Mellow & Spacious</div>
+          <div class="tile-desc">Sunday morning, rainy afternoon</div>
+        </div>
+        <div class="option-tile" data-group="vibe" data-value="jazzy, complex, exploratory and sophisticated" onclick="pick(this)">
+          <span class="tile-icon">🎷</span>
+          <div class="tile-label">Exploratory & Jazzy</div>
+          <div class="tile-desc">Playin, Eyes, Weather Report Suite</div>
+        </div>
+        <div class="option-tile" data-group="vibe" data-value="raw, high energy, aggressive and driving" onclick="pick(this)">
+          <span class="tile-icon">⚡</span>
+          <div class="tile-label">Raw & Energetic</div>
+          <div class="tile-desc">Face melter, barn burner, full throttle</div>
+        </div>
+      </div>
+      <div class="nav-row">
+        <button class="btn-back" onclick="goBack()">← Back</button>
+        <button class="btn-next" id="next-vibe-deep" disabled onclick="advance()">Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- SCREEN: Deep Preferences (experienced listeners only)      -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="screen" id="screen-deep-prefs">
+    <div class="screen-card">
+      <div class="screen-q">Let's get specific</div>
+      <div class="screen-sub">All optional — skip anything that doesn't matter to you</div>
+
+      <div class="pref-group">
+        <div class="pref-group-label">Any member you want in the spotlight?</div>
+        <div class="mini-tile-grid">
+          <div class="mini-tile" data-group="member" data-value="Jerry Garcia lead guitar front and center" onclick="pickMini(this)">Jerry showcase</div>
+          <div class="mini-tile" data-group="member" data-value="Brent Mydland keyboards and vocals prominent" onclick="pickMini(this)">Brent-led</div>
+          <div class="mini-tile" data-group="member" data-value="Keith Godchaux piano prominent" onclick="pickMini(this)">Keith-led</div>
+          <div class="mini-tile" data-group="member" data-value="Phil Lesh bass-heavy and prominent" onclick="pickMini(this)">Phil/bass-forward</div>
+          <div class="mini-tile" data-group="member" data-value="" onclick="pickMini(this)">No preference</div>
+        </div>
+      </div>
+
+      <div class="pref-group">
+        <div class="pref-group-label">Recording quality?</div>
+        <div class="mini-tile-grid">
+          <div class="mini-tile" data-group="recording" data-value="soundboard recording only, high audio quality essential" onclick="pickMini(this)">Soundboard only</div>
+          <div class="mini-tile" data-group="recording" data-value="audience recording is fine if the show is great enough" onclick="pickMini(this)">Audience tape is fine</div>
+          <div class="mini-tile" data-group="recording" data-value="" onclick="pickMini(this)">Don't care</div>
+        </div>
+      </div>
+
+      <div class="pref-group">
+        <div class="pref-group-label">Famous classic or hidden gem?</div>
+        <div class="mini-tile-grid">
+          <div class="mini-tile" data-group="gem" data-value="a well-known classic show with a strong reputation in the Dead community" onclick="pickMini(this)">Give me a classic</div>
+          <div class="mini-tile" data-group="gem" data-value="an underrated or overlooked show that serious Deadheads debate but casual fans have never heard" onclick="pickMini(this)">Surprise me with something obscure</div>
+          <div class="mini-tile" data-group="gem" data-value="" onclick="pickMini(this)">Either works</div>
+        </div>
+      </div>
+
+      <div class="nav-row">
+        <button class="btn-back" onclick="goBack()">← Back</button>
+        <button class="btn-next" onclick="advance()">Next →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- SCREEN: Free Text                                          -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="screen" id="screen-freetext">
+    <div class="screen-card">
+      <div class="screen-q">Anything else to add?</div>
+      <div class="screen-sub">Paint us a picture — or just hit Find My Show</div>
+      <textarea id="free-text" placeholder="e.g. &quot;I'm driving through the desert at 2am&quot; · &quot;I just got out of a long meeting and need something to decompress&quot; · &quot;Something that sounds like it could fall apart at any moment and that's the point&quot;"></textarea>
+      <span class="skip-note">This field is optional</span>
+      <div class="nav-row">
+        <button class="btn-back" onclick="goBack()">← Back</button>
+        <button class="btn-next" onclick="submitVibe()">Find My Show →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- LOADING                                                     -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div id="loading">
+    <div class="spinner"></div>
+    <p id="loading-msg">Searching through 30 years of shows…</p>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- ERROR                                                       -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div id="error-box"></div>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- RESULTS                                                     -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div id="results-area">
+    <div class="results-toprow">
+      <div class="results-eyebrow" id="results-eyebrow">Your shows</div>
+      <button class="btn-restart" onclick="restart()">← Start over</button>
+    </div>
+
+    <div id="vibe-interp">
+      <strong>Reading your vibe</strong>
+      <span id="vibe-text"></span>
+    </div>
+
+    <div class="cards" id="cards"></div>
+
+    <div id="deeper-cut">
+      <strong>If you like these, also explore</strong>
+      <p id="deeper-cut-text"></p>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  Powered by Claude AI &nbsp;·&nbsp;
+  Stream at <a href="https://archive.org/details/GratefulDead" target="_blank">archive.org</a>
+  &nbsp;·&nbsp;
+  Setlists at <a href="https://www.setlist.fm/setlists/grateful-dead-3d6bde3.html" target="_blank">setlist.fm</a>
+</footer>
+
+<script>
+// ════════════════════════════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════════════════════════════
+const API_BASE = "http://localhost:8000";  // ← Change this when you deploy
+
+// ════════════════════════════════════════════════════════════════
+// OWNER'S PICKS
+// Edit this list with your 20–25 favorite shows.
+// Format: { date: "YYYY-MM-DD", venue: "Full venue name and city" }
+// 3 shows will be picked at random each time someone hits "Personal Favorites"
+// ════════════════════════════════════════════════════════════════
+const OWNER_PICKS = [
+  // ── Brian's personal favorites — edit dates/venues any time ──
+  { date: "1972-08-27", venue: "Oregon Country Fair, Veneta, OR" },
+  { date: "1977-05-08", venue: "Barton Hall, Cornell University, Ithaca, NY" },
+  { date: "1977-06-07", venue: "Winterland Arena, San Francisco, CA" },
+  { date: "1973-12-18", venue: "Curtis Hixon Hall, Tampa, FL" },
+  { date: "1973-06-10", venue: "RFK Stadium, Washington, DC" },
+  { date: "1980-05-16", venue: "Nassau Coliseum, Uniondale, NY" },
+  { date: "1971-04-26", venue: "Fillmore East, New York, NY" },
+  { date: "1972-03-24", venue: "Academy of Music, New York, NY" },
+  { date: "1974-06-23", venue: "Providence Civic Center, Providence, RI" },
+  { date: "1981-03-09", venue: "Madison Square Garden, New York, NY" },
+  { date: "1970-06-24", venue: "Capitol Theatre, Port Chester, NY" },
+  { date: "1970-05-02", venue: "Harpur College, Binghamton, NY" },
+  { date: "1978-07-08", venue: "Red Rocks Amphitheatre, Morrison, CO" },
+  { date: "1972-05-25", venue: "Lyceum Theatre, London, UK" },
+  { date: "1972-05-26", venue: "Lyceum Theatre, London, UK" },
+  { date: "1989-04-02", venue: "Pittsburgh Civic Arena, Pittsburgh, PA" },
+  { date: "1989-07-07", venue: "JFK Stadium, Philadelphia, PA" },
+  { date: "1972-09-21", venue: "The Spectrum, Philadelphia, PA" },
+  { date: "1981-05-28", venue: "Barton Hall, Cornell University, Ithaca, NY" },
+  { date: "1978-12-31", venue: "Winterland Arena, San Francisco, CA" },
+  { date: "1973-10-19", venue: "Myriad Convention Center, Oklahoma City, OK" },
+  { date: "1981-05-06", venue: "Nassau Coliseum, Uniondale, NY" },
+  { date: "1977-09-03", venue: "Raceway Park, Englishtown, NJ" },
+  { date: "1972-04-17", venue: "Tivoli Concert Hall, Copenhagen, Denmark" },
+];
+
+// ════════════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════════════
+let path         = null;   // 'mood' | 'history' | 'owner'
+let experience   = null;
+let screenHistory = [];    // stack of visited screen IDs
+
+const picks = {
+  experience: null,
+  era:        null,
+  vibe:       null,
+  member:     null,
+  recording:  null,
+  gem:        null,
+};
+
+// ════════════════════════════════════════════════════════════════
+// INIT — set today's date on the home badge
+// ════════════════════════════════════════════════════════════════
+(function init() {
+  const today = new Date();
+  const months = ["January","February","March","April","May","June",
+                  "July","August","September","October","November","December"];
+  document.getElementById("today-badge").textContent =
+    months[today.getMonth()] + " " + today.getDate();
+})();
+
+// ════════════════════════════════════════════════════════════════
+// PATH SELECTION (Home screen)
+// ════════════════════════════════════════════════════════════════
+function startPath(p) {
+  path = p;
+  if (p === 'history') {
+    fetchHistory();
+  } else if (p === 'owner') {
+    fetchOwnerPick();
+  } else {
+    // mood path → go to experience screen
+    showScreen('screen-experience', ['screen-home'], 1, 5);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// SCREEN NAVIGATION
+// ════════════════════════════════════════════════════════════════
+function showScreen(targetId, hideIds, step, totalSteps) {
+  // hide current screens
+  (hideIds || []).forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
+  // hide all screens (catch-all)
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+
+  document.getElementById(targetId).classList.add('active');
+  screenHistory.push(targetId);
+  updateProgress(step, totalSteps);
+}
+
+function updateProgress(step, total) {
+  const wrap = document.getElementById('progress-wrap');
+  if (!step || !total) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  document.getElementById('progress-fill').style.width = ((step / total) * 100) + '%';
+  document.getElementById('progress-label').textContent = `Step ${step} of ${total}`;
+}
+
+// advance() figures out where to go next based on state
+function advance() {
+  const currentScreen = screenHistory[screenHistory.length - 1];
+
+  if (currentScreen === 'screen-experience') {
+    experience = picks.experience;
+    if (experience === 'newcomer' || experience === 'casual') {
+      showScreen('screen-vibe-simple', null, 2, 4);
+    } else {
+      showScreen('screen-era', null, 2, 6);
+    }
+  }
+  else if (currentScreen === 'screen-vibe-simple') {
+    showScreen('screen-freetext', null, 3, 4);
+  }
+  else if (currentScreen === 'screen-era') {
+    showScreen('screen-vibe-deep', null, 3, 6);
+  }
+  else if (currentScreen === 'screen-vibe-deep') {
+    showScreen('screen-deep-prefs', null, 4, 6);
+  }
+  else if (currentScreen === 'screen-deep-prefs') {
+    showScreen('screen-freetext', null, 5, 6);
+  }
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function goBack() {
+  if (screenHistory.length < 2) return;
+  screenHistory.pop(); // remove current
+  const prev = screenHistory[screenHistory.length - 1];
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(prev).classList.add('active');
+
+  // Recalculate progress
+  const total = (experience === 'newcomer' || experience === 'casual') ? 4 : 6;
+  const step = screenHistory.length;
+  updateProgress(step, total);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ════════════════════════════════════════════════════════════════
+// TILE SELECTION
+// ════════════════════════════════════════════════════════════════
+function pick(tile) {
+  const group = tile.dataset.group;
+  // Deselect siblings
+  document.querySelectorAll(`.option-tile[data-group="${group}"]`).forEach(t => t.classList.remove('selected'));
+  tile.classList.add('selected');
+  picks[group] = tile.dataset.value;
+
+  // Enable the next button for this screen
+  const currentScreen = screenHistory[screenHistory.length - 1];
+  const nextBtnMap = {
+    'screen-experience':  'next-experience',
+    'screen-vibe-simple': 'next-vibe-simple',
+    'screen-era':         'next-era',
+    'screen-vibe-deep':   'next-vibe-deep',
+  };
+  const btnId = nextBtnMap[currentScreen];
+  if (btnId) document.getElementById(btnId).disabled = false;
+}
+
+function pickMini(tile) {
+  const group = tile.dataset.group;
+  document.querySelectorAll(`.mini-tile[data-group="${group}"]`).forEach(t => t.classList.remove('selected'));
+  tile.classList.add('selected');
+  picks[group] = tile.dataset.value;
+}
+
+// ════════════════════════════════════════════════════════════════
+// BUILD PROMPT FROM MOOD QUIZ ANSWERS
+// ════════════════════════════════════════════════════════════════
+function buildMoodPrompt() {
+  const parts = [];
+
+  const expMap = {
+    newcomer: "This person has never heard the Grateful Dead before. Recommend the single best gateway show — accessible, genuinely great, with a good recording.",
+    casual:   "This is a casual listener who knows a handful of songs and is ready to go deeper. Recommend something that will convert them into a real fan.",
+    fan:      "This person knows the well-known shows (Cornell, Veneta, Europe '72) and wants something that still surprises them. Don't reach for the obvious.",
+    deadhead: "This is a seasoned Deadhead who has heard dozens of shows. Skip anything overplayed — dig into the catalog and find something genuinely special.",
+    scholar:  "This person has heard hundreds of shows. Recommend something underrated, overlooked, or that serious collectors debate but casual fans have never heard.",
+  };
+  if (picks.experience) parts.push(expMap[picks.experience] || "");
+
+  if (picks.vibe)      parts.push(`Mood: ${picks.vibe}.`);
+  if (picks.member)    parts.push(`Member spotlight preference: ${picks.member}.`);
+  if (picks.recording) parts.push(`Recording quality preference: ${picks.recording}.`);
+  if (picks.gem)       parts.push(`Show type preference: ${picks.gem}.`);
+
+  const freeText = document.getElementById('free-text').value.trim();
+  if (freeText) parts.push(`Additional context from the user: "${freeText}"`);
+
+  return parts.filter(Boolean).join(' ') || "Show me some great Grateful Dead shows.";
+}
+
+// ════════════════════════════════════════════════════════════════
+// SUBMIT — mood quiz path
+// ════════════════════════════════════════════════════════════════
+async function submitVibe() {
+  const prompt = buildMoodPrompt();
+  const era    = picks.era || null;
+  await fetchShows(prompt, era, 3, "Your shows");
+}
+
+// ════════════════════════════════════════════════════════════════
+// TODAY IN DEAD HISTORY
+// ════════════════════════════════════════════════════════════════
+async function fetchHistory() {
+  const today = new Date();
+  const months = ["January","February","March","April","May","June",
+                  "July","August","September","October","November","December"];
+  const monthName = months[today.getMonth()];
+  const day       = today.getDate();
+
+  const prompt = `Today is ${monthName} ${day}. Find me the best Grateful Dead shows that were performed on ${monthName} ${day} in any year of their touring history between 1965 and 1995. What are the most notable or legendary shows that happened on this exact date? Rank them by overall quality — consider setlist strength, improvisation, and recording availability. If only a few shows exist on this date, that's fine — be honest about how many there are.`;
+
+  document.getElementById('loading-msg').textContent = `Finding shows from ${monthName} ${day} in Dead history…`;
+  await fetchShows(prompt, null, 3, `Dead shows on ${monthName} ${day}`);
+}
+
+// ════════════════════════════════════════════════════════════════
+// OWNER'S PICKS
+// ════════════════════════════════════════════════════════════════
+async function fetchOwnerPick() {
+  // Shuffle and pick 3
+  const shuffled = [...OWNER_PICKS].sort(() => Math.random() - 0.5);
+  const chosen   = shuffled.slice(0, 3);
+
+  const showList = chosen.map(s => `${s.date} at ${s.venue}`).join('; ');
+  const prompt   = `Please give your full enthusiastic recommendation writeup for exactly these three specific Grateful Dead shows, which have been personally curated as all-time favorites: ${showList}. For each show, write a detailed, specific pitch about what makes it extraordinary — reference actual songs, jams, and moments. Treat each one as a gem worth discovering.`;
+
+  document.getElementById('loading-msg').textContent = 'Pulling up tonight\'s personal picks…';
+  await fetchShows(prompt, null, 3, "Personal Favorites");
+}
+
+// ════════════════════════════════════════════════════════════════
+// SHARED FETCH + RENDER
+// ════════════════════════════════════════════════════════════════
+async function fetchShows(prompt, era, numResults, eyebrow) {
+  // Hide everything, show loading
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('progress-wrap').style.display = 'none';
+  document.getElementById('results-area').style.display  = 'none';
+  document.getElementById('error-box').style.display     = 'none';
+  document.getElementById('cards').innerHTML             = '';
+  document.getElementById('loading').style.display       = 'block';
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  try {
+    const res = await fetch(`${API_BASE}/recommend`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, era: era || null, num_results: numResults }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Server error ${res.status}`);
+    }
+
+    const data = await res.json();
+    document.getElementById('loading').style.display = 'none';
+    renderResults(data, eyebrow);
+
+  } catch (err) {
+    document.getElementById('loading').style.display = 'none';
+    const box = document.getElementById('error-box');
+    box.textContent = `Something went wrong: ${err.message}`;
+    box.style.display = 'block';
+    // Bring the home screen back
+    restart();
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// RENDER RESULTS
+// ════════════════════════════════════════════════════════════════
+function renderResults(data, eyebrow) {
+  document.getElementById('results-eyebrow').textContent = eyebrow || 'Your shows';
+
+  if (data.vibe_interpretation) {
+    document.getElementById('vibe-text').textContent = data.vibe_interpretation;
+    document.getElementById('vibe-interp').style.display = 'block';
+  } else {
+    document.getElementById('vibe-interp').style.display = 'none';
+  }
+
+  const container = document.getElementById('cards');
+  container.innerHTML = '';
+
+  (data.recommendations || []).forEach(rec => {
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const archiveLink = rec.archive_org_id
+      ? `https://archive.org/details/${rec.archive_org_id}`
+      : `https://archive.org/search?query=${encodeURIComponent('Grateful Dead ' + (rec.date || '') + ' ' + (rec.venue || ''))}&collection=GratefulDead`;
+
+    const pct   = rec.vibe_match || 0;
+    const rCls  = recClass(rec.recording_type);
+    const mHTML = (rec.key_moments || []).map(m => `<li>${esc(m)}</li>`).join('');
+
+    card.innerHTML = `
+      <div class="card-head">
+        <div class="rank">#${rec.rank}</div>
+        <div class="card-title-wrap">
+          <div class="show-date">${esc(fmtDate(rec.date))}</div>
+          <div class="show-venue">${esc(rec.venue || '')}</div>
+        </div>
+        <div class="match-wrap">
+          <div class="match-pct">${pct}%</div>
+          <div class="match-lbl">Vibe Match</div>
+          <div class="match-bar"><div class="match-fill" style="width:${pct}%"></div></div>
+        </div>
+      </div>
+      <div class="card-body">
+        <span class="era-tag">${esc(rec.era || '')}</span>
+        <p class="pitch">${esc(rec.pitch || '')}</p>
+        ${mHTML ? `<div class="moments-label">Key Moments</div><ul class="moments">${mHTML}</ul>` : ''}
+      </div>
+      ${rec.caveats ? `<div class="caveat">${esc(rec.caveats)}</div>` : ''}
+      <div class="card-foot">
+        <div class="rec-info">
+          <span class="rec-badge ${rCls}">${esc(rec.recording_type || 'Unknown')}</span><br>
+          ${esc(rec.recording_quality || '')}
+        </div>
+        <a class="listen-btn" href="${archiveLink}" target="_blank" rel="noopener">▶ Listen on Archive.org</a>
+      </div>`;
+
+    container.appendChild(card);
+  });
+
+  if (data.deeper_cut) {
+    document.getElementById('deeper-cut-text').textContent = data.deeper_cut;
+    document.getElementById('deeper-cut').style.display = 'block';
+  } else {
+    document.getElementById('deeper-cut').style.display = 'none';
+  }
+
+  document.getElementById('results-area').style.display = 'block';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ════════════════════════════════════════════════════════════════
+// RESTART
+// ════════════════════════════════════════════════════════════════
+function restart() {
+  // Reset state
+  path = null; experience = null; screenHistory = [];
+  Object.keys(picks).forEach(k => picks[k] = null);
+  document.getElementById('free-text').value = '';
+  document.getElementById('cards').innerHTML = '';
+
+  // Reset tile selections
+  document.querySelectorAll('.option-tile, .mini-tile').forEach(t => t.classList.remove('selected'));
+  document.querySelectorAll('.btn-next[id]').forEach(b => b.disabled = true);
+
+  // Show home screen
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-home').classList.add('active');
+  document.getElementById('progress-wrap').style.display = 'none';
+  document.getElementById('results-area').style.display  = 'none';
+  document.getElementById('error-box').style.display     = 'none';
+  document.getElementById('loading').style.display       = 'none';
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ════════════════════════════════════════════════════════════════
+// UTILITIES
+// ════════════════════════════════════════════════════════════════
+function fmtDate(d) {
+  if (!d) return '';
+  const [y, m, day] = d.split('-').map(Number);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${months[m-1]} ${day}, ${y}`;
+}
+
+function recClass(type) {
+  if (!type) return 'other';
+  const t = type.toUpperCase();
+  if (t.includes('SBD') || t.includes('SOUNDBOARD')) return 'sbd';
+  if (t.includes('AUD') || t.includes('AUDIENCE'))   return 'aud';
+  return 'other';
+}
+
+function esc(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
