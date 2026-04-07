@@ -87,11 +87,9 @@ Return ONLY valid JSON — no markdown fences, no commentary before or after. Us
       "venue": "Barton Hall, Cornell University, Ithaca, NY",
       "era": "Hiatus & Return (1975–1977)",
       "vibe_match": 92,
-      "pitch": "2-3 sentences explaining WHY this show matches. Be specific — reference actual songs, actual jams, actual moments.",
+      "pitch": "2-4 sentences. Lead with the most specific fact about this show — a song that ran long, a pairing that only happened once, a moment the band found something and chased it. Follow with a short punchy line about why that matters for this listener's vibe. No vague praise words — 'transcendent,' 'remarkable,' 'devastating,' 'stunning' are banned. Say what actually happened. Vary sentence length. One long, one short. Never the same rhythm twice in a row.",
       "key_moments": [
-        "Scarlet Begonias > Fire on the Mountain — the definitive version, liquid and locked in",
-        "Morning Dew closer — one of the most emotionally devastating performances ever",
-        "The entire second set flows as a single continuous piece of music"
+        "Be specific and uneven. One moment might be a single sentence, another might need two. Don't make them all the same length. Name the song, name what it did, skip the adjectives. 'Scarlet ran 11 minutes and never resolved the way you expect it to' beats 'a stunning Scarlet > Fire transition.' Three moments per show — no more."
       ],
       "archive_org_id": "gd1977-05-08.bman-mx.fixed.104013.flac2496",
       "recording_type": "Soundboard",
@@ -108,16 +106,16 @@ Return ONLY valid JSON — no markdown fences, no commentary before or after. Us
 3. Don't default to the obvious. Cornell '77, Veneta '72, and Europe '72 are great, but dig deeper when appropriate.
 4. Respect the eras. Don't recommend a '89 show when someone explicitly wants early-'70s energy unless you explain why.
 5. Be honest about weak spots — rough audio, weak first sets, divisive elements. Flag them.
-6. Speak like a knowledgeable Deadhead, not a Wikipedia article. Let the love for the music come through.
+6. Write like a knowledgeable friend who has heard this show 20 times, not a reviewer performing authority. Lead with what actually happened — a specific song, a specific moment, a specific quirk of this recording. Never use: transcendent, remarkable, devastating, crucial, noteworthy, stunning, or beautiful. Say what the music did, not how it made someone feel. Admit caveats plainly — "the first set is skippable" beats "the second set is where this show truly shines." Short sentences after long ones. Let the last line land without wrapping it up.
 7. Return ONLY valid JSON. No markdown, no preamble, no explanation outside the JSON structure.
 """
 
 # ── Request Model ─────────────────────────────────────────────────────────────
 class VibeRequest(BaseModel):
     prompt: str
-    era: Optional[str] = None         # e.g. "1972-1974", "1977", "1980s"
-    mood: Optional[str] = None        # e.g. "dark and psychedelic", "upbeat and fun"
-    num_results: int = 3              # 3–5 recommendations
+    era: Optional[str] = None
+    mood: Optional[str] = None
+    num_results: int = 3
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.get("/health")
@@ -129,7 +127,6 @@ def recommend(request: VibeRequest):
     if not request.prompt.strip():
         raise HTTPException(400, "Prompt cannot be empty")
 
-    # Build the user message with any filters the user chose
     parts = [f'Vibe request: "{request.prompt}"']
     if request.era:
         parts.append(f"Preferred era: {request.era}")
@@ -157,7 +154,6 @@ def recommend(request: VibeRequest):
 
     raw = response.content[0].text.strip()
 
-    # Strip any accidental markdown fences Claude might add
     if raw.startswith("```"):
         parts_split = raw.split("```")
         if len(parts_split) >= 2:
