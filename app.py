@@ -6,7 +6,7 @@ A minimal FastAPI backend that takes a vibe description and returns
 Grateful Dead show recommendations powered by Claude.
 
 Setup:
-    pip install fastapi uvicorn anthropic python-dotenv
+    pip install fastapi uvicorn anthropic python-dotenv requests
     Create a .env file with: ANTHROPIC_API_KEY=sk-ant-...
     python app.py
     API available at http://localhost:8000
@@ -18,6 +18,7 @@ import logging
 from typing import Optional
 
 import anthropic
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -29,6 +30,61 @@ log = logging.getLogger(__name__)
 
 # ── Anthropic Client ──────────────────────────────────────────────────────────
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+# ── Setlist.fm ────────────────────────────────────────────────────────────────
+SETLIST_FM_KEY = os.environ.get("SETLIST_FM_API_KEY", "")
+
+def fetch_setlist(date_str: str) -> dict | None:
+    """Fetch real setlist from setlist.fm for a given YYYY-MM-DD date."""
+    if not SETLIST_FM_KEY or not date_str:
+        return None
+    try:
+        # Convert YYYY-MM-DD → DD-MM-YYYY (setlist.fm format)
+        parts = date_str.split("-")
+        if len(parts) != 3:
+            return None
+        sfm_date = f"{parts[2]}-{parts[1]}-{parts[0]}"
+
+        resp = requests.get(
+            "https://api.setlist.fm/rest/1.0/search/setlists",
+            params={"artistName": "Grateful Dead", "date": sfm_date},
+            headers={"x-api-key": SETLIST_FM_KEY, "Accept": "application/json"},
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return None
+
+        data = resp.json()
+        setlists = data.get("setlist", [])
+        if not setlists:
+            return None
+
+        # Take the first result
+        sl = setlists[0]
+        sets = sl.get("sets", {}).get("set", [])
+
+        # Flatten into labeled sets
+        result = []
+        for s in sets:
+            name = s.get("name") or s.get("encore") and "Encore" or "Set"
+            if s.get("encore"):
+                name = "Encore"
+            songs = [song.get("name", "") for song in s.get("song", []) if song.get("name")]
+            if songs:
+                result.append({"name": name, "songs": songs})
+
+        venue_data = sl.get("venue", {})
+        venue_name = venue_data.get("name", "")
+        city = venue_data.get("city", {}).get("name", "")
+
+        return {
+            "sets": result,
+            "venue": f"{venue_name}, {city}".strip(", "),
+            "setlist_url": sl.get("url", ""),
+        }
+    except Exception as e:
+        log.warning(f"Setlist.fm lookup failed for {date_str}: {e}")
+        return None
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Dead Vibe Matcher", version="1.0.0")
@@ -167,9 +223,18 @@ def recommend(request: VibeRequest):
         log.error(f"Failed to parse Claude response as JSON: {e}\nRaw: {raw[:500]}")
         raise HTTPException(500, "AI returned an unexpected format — please try again")
 
+    # Attach real setlists from setlist.fm to each recommendation
+    for rec in data.get("recommendations", []):
+        date = rec.get("date")
+        if date:
+            setlist = fetch_setlist(date)
+            rec["setlist"] = setlist  # None if not found — frontend handles gracefully
+
     return data
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
