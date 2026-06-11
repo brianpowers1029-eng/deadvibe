@@ -6,7 +6,7 @@ A minimal FastAPI backend that takes a vibe description and returns
 Grateful Dead show recommendations powered by Claude.
 
 Setup:
-    pip install fastapi uvicorn anthropic python-dotenv requests
+    pip install fastapi uvicorn anthropic python-dotenv
     Create a .env file with: ANTHROPIC_API_KEY=sk-ant-...
     python app.py
     API available at http://localhost:8000
@@ -14,15 +14,20 @@ Setup:
 
 import os
 import json
+import time
+import sqlite3
 import logging
 from typing import Optional
 
 import anthropic
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +38,9 @@ client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
 # ── Setlist.fm ────────────────────────────────────────────────────────────────
 SETLIST_FM_KEY = os.environ.get("SETLIST_FM_API_KEY", "")
+
+# Guard against oversized prompts blowing up token usage / cost.
+MAX_PROMPT_CHARS = 2000
 
 def fetch_setlist(date_str: str) -> dict | None:
     """Fetch real setlist from setlist.fm for a given YYYY-MM-DD date."""
@@ -86,14 +94,87 @@ def fetch_setlist(date_str: str) -> dict | None:
         log.warning(f"Setlist.fm lookup failed for {date_str}: {e}")
         return None
 
+def archive_id_exists(archive_id: str) -> bool:
+    """Confirm an archive.org identifier resolves to a real item.
+
+    Claude can hallucinate IDs, producing dead 'Listen' links. We fail OPEN
+    (return True) on network errors so a transient archive.org hiccup doesn't
+    strip a valid link.
+    """
+    if not archive_id:
+        return False
+    try:
+        resp = requests.get(f"https://archive.org/metadata/{archive_id}", timeout=4)
+        if resp.status_code != 200:
+            return False
+        return bool(resp.json().get("metadata"))
+    except Exception as e:
+        log.warning(f"Archive validation failed for {archive_id}: {e}")
+        return True
+
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Dead Vibe Matcher", version="1.0.0")
+
+# Lock CORS to your site in production by setting ALLOWED_ORIGINS to a
+# comma-separated list of origins (e.g. "https://deadvibe.app"). Defaults to "*".
+_origins_env = os.environ.get("ALLOWED_ORIGINS", "*").strip()
+allowed_origins = ["*"] if _origins_env == "*" else [o.strip() for o in _origins_env.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Rate Limiting ─────────────────────────────────────────────────────────────
+# Each /recommend call spends real Claude credits, so cap per-IP usage.
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/hour"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── Response Cache ────────────────────────────────────────────────────────────
+# Identical requests (notably "Today in Dead History", which is the same for
+# everyone on a given day) reuse a cached result instead of re-calling Claude.
+CACHE_TTL_SECONDS = 6 * 60 * 60   # 6 hours
+CACHE_MAX_ENTRIES = 500
+_cache: dict[str, tuple[float, dict]] = {}
+
+def _cache_get(key: str) -> dict | None:
+    entry = _cache.get(key)
+    if not entry:
+        return None
+    ts, value = entry
+    if time.time() - ts > CACHE_TTL_SECONDS:
+        _cache.pop(key, None)
+        return None
+    return value
+
+def _cache_set(key: str, value: dict) -> None:
+    if len(_cache) >= CACHE_MAX_ENTRIES:
+        # Drop the oldest entry to bound memory.
+        oldest = min(_cache, key=lambda k: _cache[k][0])
+        _cache.pop(oldest, None)
+    _cache[key] = (time.time(), value)
+
+# ── Feedback Store ────────────────────────────────────────────────────────────
+# Persist 👍/👎 votes so we can see which recommendations actually land.
+# NOTE: on an ephemeral host (e.g. a single Railway dyno) this file resets on
+# redeploy — swap DB_PATH for a mounted volume or external DB to keep history.
+DB_PATH = os.environ.get("FEEDBACK_DB_PATH", "feedback.db")
+
+def init_db() -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS feedback (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                show_date  TEXT,
+                venue      TEXT,
+                is_match   INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+
+init_db()
 
 # ── System Prompt ─────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are the Dead Vibe Matcher — an expert guide to the Grateful Dead's live catalog spanning 1965 to 1995. You have encyclopedic knowledge of every era, lineup, venue, and the musical character of the band's ~2,300 live performances.
@@ -169,9 +250,14 @@ Return ONLY valid JSON — no markdown fences, no commentary before or after. Us
 # ── Request Model ─────────────────────────────────────────────────────────────
 class VibeRequest(BaseModel):
     prompt: str
-    era: Optional[str] = None
-    mood: Optional[str] = None
-    num_results: int = 3
+    era: Optional[str] = None         # e.g. "1972-1974", "1977", "1980s"
+    mood: Optional[str] = None        # e.g. "dark and psychedelic", "upbeat and fun"
+    num_results: int = 3              # 3–5 recommendations
+
+class FeedbackRequest(BaseModel):
+    date: Optional[str] = None        # show date the user voted on
+    venue: Optional[str] = None
+    is_match: bool                    # True = 👍, False = 👎
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.get("/health")
@@ -179,48 +265,66 @@ def health():
     return {"status": "ok", "version": "1.0.0"}
 
 @app.post("/recommend")
-def recommend(request: VibeRequest):
-    if not request.prompt.strip():
+@limiter.limit("10/minute")
+def recommend(request: Request, payload: VibeRequest):
+    if not payload.prompt.strip():
         raise HTTPException(400, "Prompt cannot be empty")
+    if len(payload.prompt) > MAX_PROMPT_CHARS:
+        raise HTTPException(413, f"Prompt too long (max {MAX_PROMPT_CHARS} characters)")
 
-    parts = [f'Vibe request: "{request.prompt}"']
-    if request.era:
-        parts.append(f"Preferred era: {request.era}")
-    if request.mood:
-        parts.append(f"Mood refinement: {request.mood}")
-    parts.append(f"Number of recommendations requested: {request.num_results}")
+    # Build the user message with any filters the user chose
+    parts = [f'Vibe request: "{payload.prompt}"']
+    if payload.era:
+        parts.append(f"Preferred era: {payload.era}")
+    if payload.mood:
+        parts.append(f"Mood refinement: {payload.mood}")
+    parts.append(f"Number of recommendations requested: {payload.num_results}")
     user_message = "\n".join(parts)
 
-    log.info(f"Vibe request: {request.prompt[:80]}...")
+    # Serve identical requests from cache (saves a Claude + setlist.fm round trip)
+    cache_key = user_message
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        log.info(f"Cache hit: {payload.prompt[:80]}...")
+        return cached
 
-    try:
-        response = client.messages.create(
-            model="claude-opus-4-6",
-            max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
-        )
-    except anthropic.AuthenticationError:
-        raise HTTPException(401, "Invalid Anthropic API key — check your .env file")
-    except anthropic.RateLimitError:
-        raise HTTPException(429, "Rate limited — please wait a moment and try again")
-    except Exception as e:
-        log.error(f"Claude API error: {e}")
-        raise HTTPException(500, f"AI error: {str(e)}")
+    log.info(f"Vibe request: {payload.prompt[:80]}...")
 
-    raw = response.content[0].text.strip()
+    # Claude occasionally returns slightly malformed JSON; retry once before failing.
+    data = None
+    for attempt in range(2):
+        try:
+            response = client.messages.create(
+                model="claude-opus-4-6",
+                max_tokens=4096,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_message}],
+            )
+        except anthropic.AuthenticationError:
+            raise HTTPException(401, "Invalid Anthropic API key — check your .env file")
+        except anthropic.RateLimitError:
+            raise HTTPException(429, "Rate limited — please wait a moment and try again")
+        except Exception as e:
+            log.error(f"Claude API error: {e}")
+            raise HTTPException(500, f"AI error: {str(e)}")
 
-    if raw.startswith("```"):
-        parts_split = raw.split("```")
-        if len(parts_split) >= 2:
-            raw = parts_split[1]
-            if raw.startswith("json"):
-                raw = raw[4:].strip()
+        raw = response.content[0].text.strip()
 
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        log.error(f"Failed to parse Claude response as JSON: {e}\nRaw: {raw[:500]}")
+        # Strip any accidental markdown fences Claude might add
+        if raw.startswith("```"):
+            parts_split = raw.split("```")
+            if len(parts_split) >= 2:
+                raw = parts_split[1]
+                if raw.startswith("json"):
+                    raw = raw[4:].strip()
+
+        try:
+            data = json.loads(raw)
+            break
+        except json.JSONDecodeError as e:
+            log.warning(f"Bad JSON from Claude (attempt {attempt + 1}/2): {e}\nRaw: {raw[:500]}")
+
+    if data is None:
         raise HTTPException(500, "AI returned an unexpected format — please try again")
 
     # Attach real setlists from setlist.fm to each recommendation
@@ -229,12 +333,30 @@ def recommend(request: VibeRequest):
         if date:
             setlist = fetch_setlist(date)
             rec["setlist"] = setlist  # None if not found — frontend handles gracefully
+        # Drop hallucinated archive IDs so the frontend falls back to a search URL
+        aid = rec.get("archive_org_id")
+        if aid and not archive_id_exists(aid):
+            log.info(f"Dropping invalid archive id: {aid}")
+            rec["archive_org_id"] = None
 
+    _cache_set(cache_key, data)
     return data
+
+@app.post("/feedback")
+@limiter.limit("30/minute")
+def feedback(request: Request, payload: FeedbackRequest):
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                "INSERT INTO feedback (show_date, venue, is_match) VALUES (?, ?, ?)",
+                (payload.date, payload.venue, 1 if payload.is_match else 0),
+            )
+    except Exception as e:
+        log.error(f"Failed to store feedback: {e}")
+        raise HTTPException(500, "Could not record feedback")
+    return {"status": "ok"}
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
-
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
