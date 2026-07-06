@@ -17,12 +17,14 @@ import json
 import time
 import sqlite3
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import anthropic
 import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -112,6 +114,22 @@ def archive_id_exists(archive_id: str) -> bool:
         log.warning(f"Archive validation failed for {archive_id}: {e}")
         return True
 
+def _enrich_recommendation(rec: dict) -> None:
+    """Attach a real setlist and validate the archive.org id for one rec.
+
+    Mutates only the passed-in dict, so it is safe to run concurrently across
+    recommendations. The two network calls are the slow part of a /recommend
+    response after the model finishes.
+    """
+    date = rec.get("date")
+    if date:
+        rec["setlist"] = fetch_setlist(date)  # None if not found — frontend handles gracefully
+    # Drop hallucinated archive IDs so the frontend falls back to a search URL
+    aid = rec.get("archive_org_id")
+    if aid and not archive_id_exists(aid):
+        log.info(f"Dropping invalid archive id: {aid}")
+        rec["archive_org_id"] = None
+
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Dead Vibe Matcher", version="1.0.0")
 
@@ -125,6 +143,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Compress responses — recommendation payloads carry full setlists and
+# compress well, which matters most on mobile connections.
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # ── Rate Limiting ─────────────────────────────────────────────────────────────
 # Each /recommend call spends real Claude credits, so cap per-IP usage.
@@ -327,17 +349,13 @@ def recommend(request: Request, payload: VibeRequest):
     if data is None:
         raise HTTPException(500, "AI returned an unexpected format — please try again")
 
-    # Attach real setlists from setlist.fm to each recommendation
-    for rec in data.get("recommendations", []):
-        date = rec.get("date")
-        if date:
-            setlist = fetch_setlist(date)
-            rec["setlist"] = setlist  # None if not found — frontend handles gracefully
-        # Drop hallucinated archive IDs so the frontend falls back to a search URL
-        aid = rec.get("archive_org_id")
-        if aid and not archive_id_exists(aid):
-            log.info(f"Dropping invalid archive id: {aid}")
-            rec["archive_org_id"] = None
+    # Attach real setlists and validate archive IDs. Each recommendation makes
+    # independent setlist.fm / archive.org calls, so fan them out concurrently
+    # instead of blocking serially (previously the dominant post-AI latency).
+    recommendations = data.get("recommendations", [])
+    if recommendations:
+        with ThreadPoolExecutor(max_workers=min(8, len(recommendations))) as pool:
+            list(pool.map(_enrich_recommendation, recommendations))
 
     _cache_set(cache_key, data)
     return data
