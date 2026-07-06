@@ -486,6 +486,79 @@
     .moments li:last-child { border-bottom: none; }
     .moments li::before { content: "⚡"; position: absolute; left: 0; font-size: 0.7rem; top: 7px; }
 
+    /* ── Setlist (from setlist.fm) ───────────────────────────── */
+    .setlist-details {
+      margin-top: 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface2);
+      overflow: hidden;
+    }
+
+    .setlist-summary {
+      padding: 11px 14px;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--amber);
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      user-select: none;
+      transition: background 0.18s;
+    }
+
+    .setlist-summary::-webkit-details-marker { display: none; }
+
+    .setlist-summary::after {
+      content: "▾";
+      color: var(--muted);
+      font-size: 0.85rem;
+      transition: transform 0.2s;
+    }
+
+    .setlist-details[open] .setlist-summary::after { transform: rotate(180deg); }
+    .setlist-summary:hover { background: rgba(200,137,10,0.05); }
+
+    .setlist-body {
+      padding: 0 14px 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .setlist-set { padding-top: 12px; }
+    .setlist-set + .setlist-set { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+
+    .setlist-set-name {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .setlist-songs {
+      margin: 0;
+      padding-left: 1.2rem;
+      font-size: 0.84rem;
+      color: #b0a890;
+      line-height: 1.55;
+    }
+
+    .setlist-songs li { padding: 2px 0; }
+
+    .setlist-link {
+      display: inline-block;
+      margin-top: 12px;
+      font-size: 0.78rem;
+      color: var(--amber-dim);
+      text-decoration: none;
+      transition: color 0.18s;
+    }
+
+    .setlist-link:hover { color: var(--amber-glow); }
+
     .card-foot {
       display: flex;
       align-items: center;
@@ -1244,6 +1317,7 @@ function renderResults(data, eyebrow) {
         <span class="era-tag">${esc(rec.era || '')}</span>
         <p class="pitch">${esc(rec.pitch || '')}</p>
         ${mHTML ? `<div class="moments-label">Key Moments</div><ul class="moments">${mHTML}</ul>` : ''}
+        ${renderSetlist(rec.setlist)}
       </div>
       ${rec.caveats ? `<div class="caveat">${esc(rec.caveats)}</div>` : ''}
       <div class="card-foot">
@@ -1309,6 +1383,35 @@ function recClass(type) {
   if (t.includes('SBD') || t.includes('SOUNDBOARD')) return 'sbd';
   if (t.includes('AUD') || t.includes('AUDIENCE'))   return 'aud';
   return 'other';
+}
+
+function renderSetlist(setlist) {
+  if (!setlist || !setlist.sets || !setlist.sets.length) return '';
+
+  const setsHTML = setlist.sets.map(s => {
+    const songs = (s.songs || []).map(song => `<li>${esc(song)}</li>`).join('');
+    if (!songs) return '';
+    return `
+      <div class="setlist-set">
+        <div class="setlist-set-name">${esc(s.name || 'Set')}</div>
+        <ol class="setlist-songs">${songs}</ol>
+      </div>`;
+  }).join('');
+
+  if (!setsHTML) return '';
+
+  const linkHTML = setlist.setlist_url
+    ? `<a class="setlist-link" href="${esc(setlist.setlist_url)}" target="_blank" rel="noopener">Full setlist on setlist.fm →</a>`
+    : '';
+
+  return `
+    <details class="setlist-details">
+      <summary class="setlist-summary">Setlist</summary>
+      <div class="setlist-body">
+        ${setsHTML}
+        ${linkHTML}
+      </div>
+    </details>`;
 }
 
 function esc(str) {
