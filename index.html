@@ -1200,11 +1200,14 @@ async function fetchHistory() {
                   "July","August","September","October","November","December"];
   const monthName = months[today.getMonth()];
   const day       = today.getDate();
-
-  const prompt = `Today is ${monthName} ${day}. Find me the best Grateful Dead shows that were performed on ${monthName} ${day} in any year of their touring history between 1965 and 1995. What are the most notable or legendary shows that happened on this exact date? Rank them by overall quality — consider setlist strength, improvisation, and recording availability. If only a few shows exist on this date, that's fine — be honest about how many there are.`;
+  const month     = today.getMonth() + 1;
 
   document.getElementById('loading-msg').textContent = `Finding shows from ${monthName} ${day} in Dead history…`;
-  await fetchShows(prompt, null, 3, `Dead shows on ${monthName} ${day}`);
+  await fetchAndRender({
+    url: `${API_BASE}/history/today?month=${month}&day=${day}`,
+    eyebrow: `Dead shows on ${monthName} ${day}`,
+    timeoutMs: 60000,
+  });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1225,8 +1228,7 @@ async function fetchOwnerPick() {
 // ════════════════════════════════════════════════════════════════
 // SHARED FETCH + RENDER
 // ════════════════════════════════════════════════════════════════
-async function fetchShows(prompt, era, numResults, eyebrow) {
-  // Hide everything, show loading
+async function fetchAndRender({ url, options = {}, eyebrow, timeoutMs = 90000 }) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('progress-wrap').style.display = 'none';
   document.getElementById('results-area').style.display  = 'none';
@@ -1236,18 +1238,11 @@ async function fetchShows(prompt, era, numResults, eyebrow) {
 
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
-  // Abort the request if it hangs — flaky mobile networks otherwise leave the
-  // spinner spinning forever. The model can take ~60s, so allow generous time.
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 90000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const res = await fetch(`${API_BASE}/recommend`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, era: era || null, num_results: numResults }),
-      signal: controller.signal,
-    });
+    const res = await fetch(url, { ...options, signal: controller.signal });
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -1265,11 +1260,22 @@ async function fetchShows(prompt, era, numResults, eyebrow) {
       ? 'That took too long — the server may be busy. Please try again.'
       : `Something went wrong: ${err.message}`;
     box.style.display = 'block';
-    // Bring the home screen back
     restart();
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+async function fetchShows(prompt, era, numResults, eyebrow) {
+  await fetchAndRender({
+    url: `${API_BASE}/recommend`,
+    options: {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, era: era || null, num_results: numResults }),
+    },
+    eyebrow,
+  });
 }
 
 // ════════════════════════════════════════════════════════════════

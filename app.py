@@ -17,6 +17,8 @@ import json
 import time
 import sqlite3
 import logging
+import threading
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -195,8 +197,203 @@ def init_db() -> None:
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS history_cache (
+                cache_key  TEXT PRIMARY KEY,
+                payload    TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
 
 init_db()
+
+# ── Today in Dead History ─────────────────────────────────────────────────────
+# Results for a given month/day are stable year over year, so we persist them in
+# SQLite (survives restarts) and pre-warm on startup. The dedicated endpoint uses
+# a shorter prompt and faster model than /recommend.
+MONTH_NAMES = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
+HISTORY_MODEL = os.environ.get("HISTORY_MODEL", "claude-haiku-4-5")
+HISTORY_MAX_TOKENS = 2048
+# MM-DD entries rarely need refreshing; 30 days is plenty for a daily feature.
+HISTORY_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
+_history_locks: dict[str, threading.Lock] = {}
+_history_locks_guard = threading.Lock()
+
+
+def _history_cache_key(month: int, day: int) -> str:
+    return f"{month:02d}-{day:02d}"
+
+
+def _history_cache_get(key: str) -> dict | None:
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT payload, created_at FROM history_cache WHERE cache_key = ?",
+            (key,),
+        ).fetchone()
+    if not row:
+        return None
+    payload_json, created_at = row
+    created_ts = datetime.fromisoformat(created_at).timestamp()
+    if time.time() - created_ts > HISTORY_CACHE_TTL_SECONDS:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("DELETE FROM history_cache WHERE cache_key = ?", (key,))
+        return None
+    return json.loads(payload_json)
+
+
+def _history_cache_set(key: str, value: dict) -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO history_cache (cache_key, payload)
+            VALUES (?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                payload = excluded.payload,
+                created_at = datetime('now')
+            """,
+            (key, json.dumps(value)),
+        )
+
+
+def _history_lock(key: str) -> threading.Lock:
+    with _history_locks_guard:
+        if key not in _history_locks:
+            _history_locks[key] = threading.Lock()
+        return _history_locks[key]
+
+
+def _strip_json_fences(raw: str) -> str:
+    if raw.startswith("```"):
+        parts_split = raw.split("```")
+        if len(parts_split) >= 2:
+            raw = parts_split[1]
+            if raw.startswith("json"):
+                raw = raw[4:].strip()
+    return raw
+
+
+def _call_claude(system: str, user_message: str, *, model: str, max_tokens: int) -> dict:
+    """Call Claude and parse a JSON object from the response."""
+    data = None
+    raw = ""
+    for attempt in range(2):
+        try:
+            response = client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user_message}],
+            )
+        except anthropic.AuthenticationError:
+            raise HTTPException(401, "Invalid Anthropic API key — check your .env file")
+        except anthropic.RateLimitError:
+            raise HTTPException(429, "Rate limited — please wait a moment and try again")
+        except Exception as e:
+            log.error(f"Claude API error: {e}")
+            raise HTTPException(500, f"AI error: {str(e)}")
+
+        raw = _strip_json_fences(response.content[0].text.strip())
+        try:
+            data = json.loads(raw)
+            break
+        except json.JSONDecodeError as e:
+            log.warning(f"Bad JSON from Claude (attempt {attempt + 1}/2): {e}\nRaw: {raw[:500]}")
+
+    if data is None:
+        raise HTTPException(500, "AI returned an unexpected format — please try again")
+    return data
+
+
+def _enrich_all(recommendations: list[dict]) -> None:
+    if recommendations:
+        with ThreadPoolExecutor(max_workers=min(8, len(recommendations))) as pool:
+            list(pool.map(_enrich_recommendation, recommendations))
+
+
+HISTORY_SYSTEM_PROMPT = """You are a Grateful Dead historian. Given a calendar month and day, return the best Grateful Dead live performances that occurred on that exact date in any year between 1965 and 1995.
+
+Return ONLY valid JSON — no markdown fences, no commentary. Use this structure:
+
+{
+  "vibe_interpretation": "1-2 sentences on what makes this date notable in Dead history",
+  "recommendations": [
+    {
+      "rank": 1,
+      "date": "1977-05-08",
+      "venue": "Barton Hall, Cornell University, Ithaca, NY",
+      "era": "Hiatus & Return (1975–1977)",
+      "vibe_match": 92,
+      "pitch": "2-3 sentences. Lead with a specific song, jam, or setlist fact. No vague praise.",
+      "key_moments": ["Three specific moments — name songs, name what happened"],
+      "archive_org_id": "gd1977-05-08.bman-mx.fixed.104013.flac2496",
+      "recording_type": "Soundboard",
+      "recording_quality": "Brief note on tape quality",
+      "caveats": null
+    }
+  ],
+  "deeper_cut": "Brief suggestion for further listening on this date"
+}
+
+Rules:
+1. Real shows only — real dates, venues, and setlists.
+2. Return exactly 3 shows, ranked by overall quality (setlist, improvisation, recording availability).
+3. If few shows exist on this date, say so honestly in vibe_interpretation.
+4. Never use: transcendent, remarkable, devastating, stunning, beautiful.
+5. Return ONLY valid JSON.
+"""
+
+
+def _generate_history(month: int, day: int) -> dict:
+    month_name = MONTH_NAMES[month - 1]
+    user_message = (
+        f"Find the 3 best Grateful Dead shows performed on {month_name} {day} "
+        f"(any year from 1965 to 1995). Rank by setlist strength, improvisation, "
+        f"and recording availability."
+    )
+    log.info(f"Generating Dead history for {month_name} {day} via {HISTORY_MODEL}...")
+    data = _call_claude(
+        HISTORY_SYSTEM_PROMPT,
+        user_message,
+        model=HISTORY_MODEL,
+        max_tokens=HISTORY_MAX_TOKENS,
+    )
+    _enrich_all(data.get("recommendations", []))
+    return data
+
+
+def _get_or_generate_history(month: int, day: int) -> dict:
+    key = _history_cache_key(month, day)
+    cached = _history_cache_get(key)
+    if cached is not None:
+        log.info(f"History cache hit: {key}")
+        return cached
+
+    lock = _history_lock(key)
+    with lock:
+        # Another thread may have populated the cache while we waited.
+        cached = _history_cache_get(key)
+        if cached is not None:
+            return cached
+        data = _generate_history(month, day)
+        _history_cache_set(key, data)
+        return data
+
+
+def _prewarm_today_history() -> None:
+    now = datetime.now()
+    key = _history_cache_key(now.month, now.day)
+    if _history_cache_get(key) is not None:
+        log.info(f"History prewarm skipped — cache already warm for {key}")
+        return
+    try:
+        log.info(f"Prewarming Dead history cache for {key}...")
+        _get_or_generate_history(now.month, now.day)
+        log.info(f"History prewarm complete for {key}")
+    except Exception as e:
+        log.warning(f"History prewarm failed: {e}")
 
 # ── System Prompt ─────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are the Dead Vibe Matcher — an expert guide to the Grateful Dead's live catalog spanning 1965 to 1995. You have encyclopedic knowledge of every era, lineup, venue, and the musical character of the band's ~2,300 live performances.
@@ -286,6 +483,28 @@ class FeedbackRequest(BaseModel):
 def health():
     return {"status": "ok", "version": "1.0.0"}
 
+
+@app.on_event("startup")
+def _startup_prewarm_history() -> None:
+    threading.Thread(target=_prewarm_today_history, daemon=True).start()
+
+
+@app.get("/history/today")
+@limiter.limit("30/minute")
+def history_today(
+    request: Request,
+    month: Optional[int] = None,
+    day: Optional[int] = None,
+):
+    """Return the best Dead shows for today's calendar date (cached in SQLite)."""
+    now = datetime.now()
+    m = month if month is not None else now.month
+    d = day if day is not None else now.day
+    if not (1 <= m <= 12 and 1 <= d <= 31):
+        raise HTTPException(400, "Invalid month or day")
+    return _get_or_generate_history(m, d)
+
+
 @app.post("/recommend")
 @limiter.limit("10/minute")
 def recommend(request: Request, payload: VibeRequest):
@@ -312,51 +531,14 @@ def recommend(request: Request, payload: VibeRequest):
 
     log.info(f"Vibe request: {payload.prompt[:80]}...")
 
-    # Claude occasionally returns slightly malformed JSON; retry once before failing.
-    data = None
-    for attempt in range(2):
-        try:
-            response = client.messages.create(
-                model="claude-opus-4-6",
-                max_tokens=4096,
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
-            )
-        except anthropic.AuthenticationError:
-            raise HTTPException(401, "Invalid Anthropic API key — check your .env file")
-        except anthropic.RateLimitError:
-            raise HTTPException(429, "Rate limited — please wait a moment and try again")
-        except Exception as e:
-            log.error(f"Claude API error: {e}")
-            raise HTTPException(500, f"AI error: {str(e)}")
+    data = _call_claude(
+        SYSTEM_PROMPT,
+        user_message,
+        model="claude-opus-4-6",
+        max_tokens=4096,
+    )
 
-        raw = response.content[0].text.strip()
-
-        # Strip any accidental markdown fences Claude might add
-        if raw.startswith("```"):
-            parts_split = raw.split("```")
-            if len(parts_split) >= 2:
-                raw = parts_split[1]
-                if raw.startswith("json"):
-                    raw = raw[4:].strip()
-
-        try:
-            data = json.loads(raw)
-            break
-        except json.JSONDecodeError as e:
-            log.warning(f"Bad JSON from Claude (attempt {attempt + 1}/2): {e}\nRaw: {raw[:500]}")
-
-    if data is None:
-        raise HTTPException(500, "AI returned an unexpected format — please try again")
-
-    # Attach real setlists and validate archive IDs. Each recommendation makes
-    # independent setlist.fm / archive.org calls, so fan them out concurrently
-    # instead of blocking serially (previously the dominant post-AI latency).
-    recommendations = data.get("recommendations", [])
-    if recommendations:
-        with ThreadPoolExecutor(max_workers=min(8, len(recommendations))) as pool:
-            list(pool.map(_enrich_recommendation, recommendations))
-
+    _enrich_all(data.get("recommendations", []))
     _cache_set(cache_key, data)
     return data
 
