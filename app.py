@@ -46,57 +46,97 @@ SETLIST_FM_KEY = os.environ.get("SETLIST_FM_API_KEY", "")
 # Guard against oversized prompts blowing up token usage / cost.
 MAX_PROMPT_CHARS = 2000
 
-def fetch_setlist(date_str: str) -> dict | None:
-    """Fetch real setlist from setlist.fm for a given YYYY-MM-DD date."""
-    if not SETLIST_FM_KEY or not date_str:
-        return None
+# Date-verification statuses returned by lookup_setlist().
+DATE_VERIFIED = "verified"          # setlist.fm has a Grateful Dead show on this date
+DATE_NOT_FOUND = "not_found"        # setlist.fm confirms no show on this date (likely hallucinated)
+DATE_UNVERIFIABLE = "unverifiable"  # could not check (no key / rate limited / network error)
+
+def lookup_setlist(date_str: str) -> tuple[str, dict | None]:
+    """Look up a Grateful Dead setlist for a YYYY-MM-DD date on setlist.fm.
+
+    setlist.fm is our source of truth for whether the band actually played on a
+    given date: a hit (HTTP 200 with results) confirms the show, while HTTP 404
+    means no such show exists — the model hallucinated the date.
+
+    Returns (status, setlist) where status is one of DATE_VERIFIED,
+    DATE_NOT_FOUND, or DATE_UNVERIFIABLE. `setlist` is populated only when the
+    date is verified. When we cannot check (missing key, rate limit, network
+    error) we fail OPEN with DATE_UNVERIFIABLE rather than falsely calling a
+    real show fake.
+    """
+    if not date_str:
+        return DATE_UNVERIFIABLE, None
+    if not SETLIST_FM_KEY:
+        return DATE_UNVERIFIABLE, None
+
+    # Convert YYYY-MM-DD → DD-MM-YYYY (setlist.fm format)
+    parts = date_str.split("-")
+    if len(parts) != 3:
+        return DATE_UNVERIFIABLE, None
+    sfm_date = f"{parts[2]}-{parts[1]}-{parts[0]}"
+
+    # setlist.fm rate-limits (~2 req/sec) and we fan out verifications
+    # concurrently, so retry briefly on 429 rather than giving up — otherwise a
+    # real show could be mislabeled "unverifiable" purely because of throttling.
+    resp = None
+    for attempt in range(3):
+        try:
+            resp = requests.get(
+                "https://api.setlist.fm/rest/1.0/search/setlists",
+                params={"artistName": "Grateful Dead", "date": sfm_date},
+                headers={"x-api-key": SETLIST_FM_KEY, "Accept": "application/json"},
+                timeout=5,
+            )
+        except Exception as e:
+            log.warning(f"Setlist.fm lookup failed for {date_str}: {e}")
+            return DATE_UNVERIFIABLE, None
+
+        if resp.status_code != 429:
+            break
+        retry_after = resp.headers.get("Retry-After")
+        delay = float(retry_after) if (retry_after or "").replace(".", "", 1).isdigit() else 1.0
+        time.sleep(min(delay, 2.0))
+
+    # 404 is setlist.fm's "no setlists match" response — a definitive no-show.
+    if resp.status_code == 404:
+        return DATE_NOT_FOUND, None
+    if resp.status_code != 200:
+        # Still rate limited or a server error — don't trust or discard.
+        log.warning(f"Setlist.fm returned {resp.status_code} for {date_str}")
+        return DATE_UNVERIFIABLE, None
+
     try:
-        # Convert YYYY-MM-DD → DD-MM-YYYY (setlist.fm format)
-        parts = date_str.split("-")
-        if len(parts) != 3:
-            return None
-        sfm_date = f"{parts[2]}-{parts[1]}-{parts[0]}"
-
-        resp = requests.get(
-            "https://api.setlist.fm/rest/1.0/search/setlists",
-            params={"artistName": "Grateful Dead", "date": sfm_date},
-            headers={"x-api-key": SETLIST_FM_KEY, "Accept": "application/json"},
-            timeout=5,
-        )
-        if resp.status_code != 200:
-            return None
-
         data = resp.json()
-        setlists = data.get("setlist", [])
-        if not setlists:
-            return None
+    except Exception:
+        return DATE_UNVERIFIABLE, None
 
-        # Take the first result
-        sl = setlists[0]
-        sets = sl.get("sets", {}).get("set", [])
+    setlists = data.get("setlist", [])
+    if not setlists:
+        return DATE_NOT_FOUND, None
 
-        # Flatten into labeled sets
-        result = []
-        for s in sets:
-            name = s.get("name") or s.get("encore") and "Encore" or "Set"
-            if s.get("encore"):
-                name = "Encore"
-            songs = [song.get("name", "") for song in s.get("song", []) if song.get("name")]
-            if songs:
-                result.append({"name": name, "songs": songs})
+    # Take the first result
+    sl = setlists[0]
+    sets = sl.get("sets", {}).get("set", [])
 
-        venue_data = sl.get("venue", {})
-        venue_name = venue_data.get("name", "")
-        city = venue_data.get("city", {}).get("name", "")
+    # Flatten into labeled sets
+    result = []
+    for s in sets:
+        name = s.get("name") or s.get("encore") and "Encore" or "Set"
+        if s.get("encore"):
+            name = "Encore"
+        songs = [song.get("name", "") for song in s.get("song", []) if song.get("name")]
+        if songs:
+            result.append({"name": name, "songs": songs})
 
-        return {
-            "sets": result,
-            "venue": f"{venue_name}, {city}".strip(", "),
-            "setlist_url": sl.get("url", ""),
-        }
-    except Exception as e:
-        log.warning(f"Setlist.fm lookup failed for {date_str}: {e}")
-        return None
+    venue_data = sl.get("venue", {})
+    venue_name = venue_data.get("name", "")
+    city = venue_data.get("city", {}).get("name", "")
+
+    return DATE_VERIFIED, {
+        "sets": result,
+        "venue": f"{venue_name}, {city}".strip(", "),
+        "setlist_url": sl.get("url", ""),
+    }
 
 def archive_id_exists(archive_id: str) -> bool:
     """Confirm an archive.org identifier resolves to a real item.
@@ -117,15 +157,17 @@ def archive_id_exists(archive_id: str) -> bool:
         return True
 
 def _enrich_recommendation(rec: dict) -> None:
-    """Attach a real setlist and validate the archive.org id for one rec.
+    """Verify a recommendation's date and attach its real setlist / archive id.
 
     Mutates only the passed-in dict, so it is safe to run concurrently across
     recommendations. The two network calls are the slow part of a /recommend
     response after the model finishes.
     """
-    date = rec.get("date")
-    if date:
-        rec["setlist"] = fetch_setlist(date)  # None if not found — frontend handles gracefully
+    status, setlist = lookup_setlist(rec.get("date"))
+    rec["setlist"] = setlist  # populated only when the date is verified
+    rec["date_verified"] = (status == DATE_VERIFIED)
+    rec["_date_status"] = status  # internal — stripped before returning
+
     # Drop hallucinated archive IDs so the frontend falls back to a search URL
     aid = rec.get("archive_org_id")
     if aid and not archive_id_exists(aid):
@@ -539,6 +581,65 @@ def recommend(request: Request, payload: VibeRequest):
     )
 
     _enrich_all(data.get("recommendations", []))
+    # Claude occasionally returns slightly malformed JSON; retry once before failing.
+    data = None
+    for attempt in range(2):
+        try:
+            response = client.messages.create(
+                model="claude-opus-4-6",
+                max_tokens=4096,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_message}],
+            )
+        except anthropic.AuthenticationError:
+            raise HTTPException(401, "Invalid Anthropic API key — check your .env file")
+        except anthropic.RateLimitError:
+            raise HTTPException(429, "Rate limited — please wait a moment and try again")
+        except Exception as e:
+            log.error(f"Claude API error: {e}")
+            raise HTTPException(500, f"AI error: {str(e)}")
+
+        raw = response.content[0].text.strip()
+
+        # Strip any accidental markdown fences Claude might add
+        if raw.startswith("```"):
+            parts_split = raw.split("```")
+            if len(parts_split) >= 2:
+                raw = parts_split[1]
+                if raw.startswith("json"):
+                    raw = raw[4:].strip()
+
+        try:
+            data = json.loads(raw)
+            break
+        except json.JSONDecodeError as e:
+            log.warning(f"Bad JSON from Claude (attempt {attempt + 1}/2): {e}\nRaw: {raw[:500]}")
+
+    if data is None:
+        raise HTTPException(500, "AI returned an unexpected format — please try again")
+
+    # Verify dates + attach setlists / validate archive IDs. Each recommendation
+    # makes independent setlist.fm / archive.org calls, so fan them out
+    # concurrently instead of blocking serially (previously the dominant
+    # post-AI latency).
+    recommendations = data.get("recommendations", [])
+    if recommendations:
+        with ThreadPoolExecutor(max_workers=min(8, len(recommendations))) as pool:
+            list(pool.map(_enrich_recommendation, recommendations))
+
+        # Drop shows whose date setlist.fm confirms never happened — this is how
+        # we stop the model from inventing performances (e.g. in "Today in Dead
+        # History"). Dates we simply couldn't check are kept but flagged
+        # (date_verified=false) so the frontend can label them as unverified.
+        kept = [r for r in recommendations if r.pop("_date_status", None) != DATE_NOT_FOUND]
+        dropped = len(recommendations) - len(kept)
+        if dropped:
+            log.info(f"Dropped {dropped} recommendation(s) with unverifiable/fabricated dates")
+        # Renumber ranks so the displayed list has no gaps after filtering.
+        for i, rec in enumerate(kept, start=1):
+            rec["rank"] = i
+        data["recommendations"] = kept
+
     _cache_set(cache_key, data)
     return data
 

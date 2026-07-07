@@ -137,7 +137,7 @@
       border-radius: 12px;
       padding: 22px 24px;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: background 0.2s, border-color 0.2s, transform 0.2s;
       display: flex;
       align-items: flex-start;
       gap: 18px;
@@ -198,7 +198,7 @@
       border-radius: 10px;
       padding: 14px 16px;
       cursor: pointer;
-      transition: all 0.18s;
+      transition: background 0.18s, border-color 0.18s, transform 0.18s, box-shadow 0.18s;
       text-align: left;
     }
 
@@ -244,7 +244,7 @@
       cursor: pointer;
       font-size: 0.83rem;
       color: var(--muted);
-      transition: all 0.18s;
+      transition: background 0.18s, border-color 0.18s, color 0.18s;
     }
 
     .mini-tile:hover { border-color: var(--amber-dim); color: var(--text); }
@@ -272,7 +272,7 @@
       padding: 10px 20px;
       border-radius: 8px;
       cursor: pointer;
-      transition: all 0.18s;
+      transition: border-color 0.18s, color 0.18s;
     }
 
     .btn-back:hover { border-color: var(--muted); color: var(--text); }
@@ -289,7 +289,7 @@
       border: none;
       border-radius: 8px;
       cursor: pointer;
-      transition: all 0.18s;
+      transition: background 0.18s, transform 0.18s, opacity 0.18s;
       text-shadow: 0 1px 2px rgba(0,0,0,0.3);
     }
 
@@ -384,7 +384,7 @@
       padding: 7px 16px;
       border-radius: 6px;
       cursor: pointer;
-      transition: all 0.18s;
+      transition: border-color 0.18s, color 0.18s;
     }
 
     .btn-restart:hover { border-color: var(--amber-dim); color: var(--amber); }
@@ -593,7 +593,7 @@
       font-size: 0.82rem;
       border-radius: 6px;
       text-decoration: none;
-      transition: all 0.2s;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
       white-space: nowrap;
     }
     .listen-btn:hover { background: rgba(200,137,10,0.1); border-color: var(--amber); color: var(--amber-glow); }
@@ -982,7 +982,19 @@
 // ════════════════════════════════════════════════════════════════
 // CONFIG
 // ════════════════════════════════════════════════════════════════
-const API_BASE = "http://localhost:8000";  // ← Change this when you deploy
+// API origin. Defaults to the local dev backend, but can be overridden for
+// deploys WITHOUT editing this file, via either:
+//   • a ?api=https://your-api.example.com URL query param (persisted), or
+//   • setting window.DEADVIBE_API before this script runs.
+const API_BASE = (() => {
+  try {
+    const qs = new URLSearchParams(location.search).get('api');
+    if (qs) { localStorage.setItem('deadvibe_api', qs); return qs; }
+    const saved = localStorage.getItem('deadvibe_api');
+    if (saved) return saved;
+  } catch (_) { /* localStorage unavailable (e.g. private mode) — fall through */ }
+  return window.DEADVIBE_API || "http://localhost:8000";
+})();
 
 // ════════════════════════════════════════════════════════════════
 // OWNER'S PICKS
@@ -1055,8 +1067,9 @@ function startPath(p) {
   } else if (p === 'owner') {
     fetchOwnerPick();
   } else {
-    // mood path → go to experience screen
-    showScreen('screen-experience', ['screen-home'], 1, 5);
+    // mood path → go to experience screen. Total defaults to the 4-step
+    // simple path; picking a deeper experience expands it to 6 in advance().
+    showScreen('screen-experience', ['screen-home'], 1, 4);
   }
 }
 
@@ -1325,6 +1338,7 @@ function renderResults(data, eyebrow) {
         ${mHTML ? `<div class="moments-label">Key Moments</div><ul class="moments">${mHTML}</ul>` : ''}
         ${renderSetlist(rec.setlist)}
       </div>
+      ${rec.date_verified === false ? `<div class="caveat">⚠ We couldn't confirm this exact date against setlist.fm — treat it as unverified.</div>` : ''}
       ${rec.caveats ? `<div class="caveat">${esc(rec.caveats)}</div>` : ''}
       <div class="card-foot">
         <div class="rec-info">
@@ -1336,6 +1350,17 @@ function renderResults(data, eyebrow) {
 
     container.appendChild(card);
   });
+
+  // Every date is checked against setlist.fm and fabricated ones are removed,
+  // so an empty list means nothing could be verified — say so honestly rather
+  // than showing made-up shows.
+  if (!container.children.length) {
+    const note = document.createElement('div');
+    note.className = 'card';
+    note.style.padding = '26px';
+    note.innerHTML = `<p class="pitch">No confirmed Grateful Dead shows turned up here. Every date is checked against setlist.fm and only verified performances are shown — so nothing was made up. Try a different vibe or date.</p>`;
+    container.appendChild(note);
+  }
 
   if (data.deeper_cut) {
     document.getElementById('deeper-cut-text').textContent = data.deeper_cut;
