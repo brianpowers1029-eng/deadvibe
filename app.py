@@ -19,6 +19,7 @@ import time
 import sqlite3
 import logging
 import threading
+from contextlib import asynccontextmanager
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
@@ -176,7 +177,14 @@ def _enrich_recommendation(rec: dict) -> None:
         rec["archive_org_id"] = None
 
 # ── App ───────────────────────────────────────────────────────────────────────
-app = FastAPI(title="Dead Vibe Matcher", version="1.0.0")
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # Pre-warm today's "Dead History" in the background so the first visitor
+    # doesn't eat the Claude latency. Runs after the module is fully loaded.
+    threading.Thread(target=_prewarm_today_history, daemon=True).start()
+    yield
+
+app = FastAPI(title="Dead Vibe Matcher", version="1.0.0", lifespan=_lifespan)
 
 # Lock CORS to your site in production by setting ALLOWED_ORIGINS to a
 # comma-separated list of origins (e.g. "https://deadvibe.app"). Defaults to "*".
@@ -200,28 +208,53 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── Response Cache ────────────────────────────────────────────────────────────
-# Identical requests (notably "Today in Dead History", which is the same for
-# everyone on a given day) reuse a cached result instead of re-calling Claude.
+# Identical requests reuse a cached result instead of re-calling Claude. Stored
+# in SQLite so it survives restarts — the dev server runs with reload=True and
+# production redeploys otherwise wiped a purely in-memory cache.
 CACHE_TTL_SECONDS = 6 * 60 * 60   # 6 hours
 CACHE_MAX_ENTRIES = 500
-_cache: dict[str, tuple[float, dict]] = {}
 
 def _cache_get(key: str) -> dict | None:
-    entry = _cache.get(key)
-    if not entry:
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT payload, created_at FROM response_cache WHERE cache_key = ?",
+            (key,),
+        ).fetchone()
+    if not row:
         return None
-    ts, value = entry
-    if time.time() - ts > CACHE_TTL_SECONDS:
-        _cache.pop(key, None)
+    payload_json, created_at = row
+    created_ts = datetime.fromisoformat(created_at).timestamp()
+    if time.time() - created_ts > CACHE_TTL_SECONDS:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("DELETE FROM response_cache WHERE cache_key = ?", (key,))
         return None
-    return value
+    return json.loads(payload_json)
 
 def _cache_set(key: str, value: dict) -> None:
-    if len(_cache) >= CACHE_MAX_ENTRIES:
-        # Drop the oldest entry to bound memory.
-        oldest = min(_cache, key=lambda k: _cache[k][0])
-        _cache.pop(oldest, None)
-    _cache[key] = (time.time(), value)
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO response_cache (cache_key, payload)
+            VALUES (?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                payload = excluded.payload,
+                created_at = datetime('now')
+            """,
+            (key, json.dumps(value)),
+        )
+        # Prune expired entries and bound total size.
+        conn.execute(
+            "DELETE FROM response_cache WHERE created_at < datetime('now', ?)",
+            (f"-{CACHE_TTL_SECONDS} seconds",),
+        )
+        conn.execute(
+            """
+            DELETE FROM response_cache WHERE cache_key NOT IN (
+                SELECT cache_key FROM response_cache ORDER BY created_at DESC LIMIT ?
+            )
+            """,
+            (CACHE_MAX_ENTRIES,),
+        )
 
 # ── Feedback Store ────────────────────────────────────────────────────────────
 # Persist 👍/👎 votes so we can see which recommendations actually land.
@@ -250,6 +283,13 @@ def init_db() -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS subscribers (
                 email      TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS response_cache (
+                cache_key  TEXT PRIMARY KEY,
+                payload    TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
         """)
@@ -562,11 +602,6 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "1.0.0"}
-
-
-@app.on_event("startup")
-def _startup_prewarm_history() -> None:
-    threading.Thread(target=_prewarm_today_history, daemon=True).start()
 
 
 @app.get("/history/today")

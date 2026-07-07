@@ -207,6 +207,43 @@
       letter-spacing: 0.04em;
     }
 
+    /* ── Quick vibe search (home) ────────────────────────────── */
+    .quick-vibe {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px dashed var(--border);
+    }
+
+    .quick-vibe-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    #quick-form { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    #quick-input {
+      flex: 1;
+      min-width: 200px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.95rem;
+      padding: 11px 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    #quick-input:focus { border-color: var(--amber-dim); }
+    #quick-input::placeholder { color: var(--muted); font-style: italic; }
+
+    /* ── Resume last results ─────────────────────────────────── */
+    .resume-row { margin-bottom: 14px; text-align: right; }
+
     /* ── Option Tiles (quiz steps — smaller, 2-col grid) ────── */
     .option-grid {
       display: grid;
@@ -286,6 +323,14 @@
       align-items: center;
       margin-top: 24px;
       gap: 12px;
+    }
+
+    .pick-hint {
+      flex: 1;
+      text-align: right;
+      font-size: 0.78rem;
+      color: var(--muted);
+      font-style: italic;
     }
 
     .btn-back {
@@ -483,7 +528,7 @@
     .show-date { font-size: 1.18rem; color: var(--amber-glow); font-weight: bold; margin-bottom: 3px; }
     .show-venue { font-size: 0.87rem; color: var(--muted); line-height: 1.4; }
 
-    .match-wrap { text-align: right; flex-shrink: 0; }
+    .match-wrap { text-align: right; flex-shrink: 0; cursor: help; }
     .match-pct { font-size: 1.45rem; font-weight: bold; color: var(--amber-glow); line-height: 1; }
     .match-lbl { font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
     .match-bar { width: 58px; height: 3px; background: var(--surface2); border-radius: 2px; margin-top: 5px; overflow: hidden; }
@@ -516,7 +561,8 @@
       border-bottom: 1px solid var(--border);
     }
     .moments li:last-child { border-bottom: none; }
-    .moments li::before { content: "⚡"; position: absolute; left: 0; font-size: 0.7rem; top: 7px; }
+    /* Text glyph, not emoji — renders consistently across platforms. */
+    .moments li::before { content: "▸"; color: var(--amber); position: absolute; left: 2px; font-size: 0.8rem; top: 5px; }
 
     /* ── Setlist (from setlist.fm) ───────────────────────────── */
     .setlist-details {
@@ -614,21 +660,25 @@
     .aud  { background: rgba(100,80,50,0.25);  color: #c8a870; border: 1px solid rgba(100,80,50,0.4); }
     .other{ background: rgba(80,80,100,0.25);  color: #a0a8c8; border: 1px solid rgba(80,80,100,0.4); }
 
+    /* The archive link is the product's primary CTA — style it like one. */
     .listen-btn {
       display: inline-flex;
       align-items: center; gap: 6px;
-      padding: 8px 16px;
-      background: transparent;
-      border: 1px solid var(--amber-dim);
-      color: var(--amber);
+      padding: 9px 18px;
+      background: linear-gradient(135deg, #8a5f07, #c8890a);
+      border: none;
+      color: #fff8e8;
       font-family: 'Georgia', serif;
-      font-size: 0.82rem;
+      font-size: 0.84rem;
+      font-weight: bold;
       border-radius: 6px;
       text-decoration: none;
-      transition: background 0.2s, border-color 0.2s, color 0.2s;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+      transition: background 0.2s, transform 0.2s;
       white-space: nowrap;
     }
-    .listen-btn:hover { background: rgba(200,137,10,0.1); border-color: var(--amber); color: var(--amber-glow); }
+    .listen-btn:hover { background: linear-gradient(135deg, #a06e08, #d99910); transform: translateY(-1px); }
+    .listen-btn:focus-visible { outline: 2px solid var(--amber-glow); outline-offset: 2px; }
 
     .caveat {
       font-size: 0.78rem; color: #c89060;
@@ -688,6 +738,30 @@
       margin-bottom: 10px;
     }
     #deeper-cut p { color: var(--muted); font-style: italic; font-size: 0.92rem; line-height: 1.6; }
+
+    /* ── Results actions (share / more) ──────────────────────── */
+    #results-actions {
+      display: none;
+      margin-top: 20px;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .btn-action {
+      background: none;
+      border: 1px solid var(--amber-dim);
+      color: var(--amber);
+      font-family: inherit;
+      font-size: 0.88rem;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: border-color 0.18s, background 0.18s, color 0.18s;
+    }
+
+    .btn-action:hover { background: rgba(200,137,10,0.08); border-color: var(--amber); color: var(--amber-glow); }
+    .btn-action:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
     /* ── Support + Newsletter ────────────────────────────────── */
     .extras { margin-top: 40px; display: flex; flex-direction: column; gap: 16px; }
@@ -804,6 +878,9 @@
   <!-- SCREEN: Home — choose your path                             -->
   <!-- ════════════════════════════════════════════════════════════ -->
   <div class="screen active" id="screen-home">
+    <div class="resume-row" id="resume-row" style="display:none">
+      <button type="button" class="btn-restart" onclick="resumeLast()">↩ Back to your last picks</button>
+    </div>
     <div class="screen-card">
       <div class="screen-q">What brings you here tonight?</div>
       <div class="screen-sub">Choose how you want to find your show</div>
@@ -834,6 +911,16 @@
           </span>
         </button>
 
+      </div>
+
+      <div class="quick-vibe">
+        <div class="quick-vibe-label">Know what you're after? Just type it</div>
+        <form id="quick-form">
+          <input id="quick-input" type="text" maxlength="2000"
+                 placeholder='e.g. "face-melting &#39;74 space jam" or "mellow Sunday morning"'
+                 aria-label="Describe your vibe" />
+          <button type="submit" class="btn-subscribe">Find shows</button>
+        </form>
       </div>
     </div>
   </div>
@@ -874,6 +961,7 @@
       </div>
       <div class="nav-row">
         <button class="btn-back" onclick="goBack()">← Back</button>
+        <span class="pick-hint">Pick one to continue</span>
         <button class="btn-next" id="next-experience" disabled onclick="advance()">Next →</button>
       </div>
     </div>
@@ -910,6 +998,7 @@
       </div>
       <div class="nav-row">
         <button class="btn-back" onclick="goBack()">← Back</button>
+        <span class="pick-hint">Pick one to continue</span>
         <button class="btn-next" id="next-vibe-simple" disabled onclick="advance()">Next →</button>
       </div>
     </div>
@@ -961,6 +1050,7 @@
       </div>
       <div class="nav-row">
         <button class="btn-back" onclick="goBack()">← Back</button>
+        <span class="pick-hint">Pick one to continue</span>
         <button class="btn-next" id="next-era" disabled onclick="advance()">Next →</button>
       </div>
     </div>
@@ -1007,6 +1097,7 @@
       </div>
       <div class="nav-row">
         <button class="btn-back" onclick="goBack()">← Back</button>
+        <span class="pick-hint">Pick one to continue</span>
         <button class="btn-next" id="next-vibe-deep" disabled onclick="advance()">Next →</button>
       </div>
     </div>
@@ -1101,6 +1192,11 @@
       <strong>If you like these, also explore</strong>
       <p id="deeper-cut-text"></p>
     </div>
+
+    <div id="results-actions">
+      <button type="button" class="btn-action" id="more-btn" onclick="fetchMore()">Find more like these →</button>
+      <button type="button" class="btn-action" id="share-btn" onclick="copyShareLink(this)">🔗 Copy link to these picks</button>
+    </div>
   </div>
 
   <!-- ════════════════════════════════════════════════════════════ -->
@@ -1193,7 +1289,8 @@ const OWNER_PICKS = [
 // ════════════════════════════════════════════════════════════════
 let path         = null;   // 'mood' | 'history' | 'owner'
 let experience   = null;
-let screenHistory = [];    // stack of visited screen IDs
+let screenHistory = ['screen-home'];  // stack of visited screen IDs
+let lastQuery    = null;   // {prompt, era, numResults, eyebrow} of the last /recommend
 
 const picks = {
   experience: null,
@@ -1203,6 +1300,37 @@ const picks = {
   recording:  null,
   gem:        null,
 };
+
+// ════════════════════════════════════════════════════════════════
+// LOCAL STORAGE HELPERS — all guarded, localStorage can be
+// unavailable (private mode) and must never break the app.
+// ════════════════════════════════════════════════════════════════
+const LAST_RESULTS_TTL_MS = 24 * 60 * 60 * 1000;
+
+function storageGet(key) {
+  try { return localStorage.getItem(key); } catch (_) { return null; }
+}
+function storageSet(key, value) {
+  try { localStorage.setItem(key, value); } catch (_) { /* ignore */ }
+}
+
+function loadLastResults() {
+  const raw = storageGet('deadvibe_last');
+  if (!raw) return null;
+  try {
+    const saved = JSON.parse(raw);
+    if (!saved.data || Date.now() - (saved.ts || 0) > LAST_RESULTS_TTL_MS) return null;
+    return saved;
+  } catch (_) { return null; }
+}
+
+function saveLastResults(data, eyebrow, query) {
+  storageSet('deadvibe_last', JSON.stringify({ data, eyebrow, query: query || null, ts: Date.now() }));
+}
+
+function refreshResumeButton() {
+  document.getElementById('resume-row').style.display = loadLastResults() ? 'block' : 'none';
+}
 
 // ════════════════════════════════════════════════════════════════
 // INIT — set today's date on the home badge
@@ -1218,6 +1346,28 @@ const picks = {
     document.getElementById('tip-link').href = TIP_JAR_URL;
     document.getElementById('tip-box').style.display = 'block';
   }
+
+  refreshResumeButton();
+
+  // Quick search: skip the quiz entirely and go straight to results.
+  document.getElementById('quick-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const prompt = document.getElementById('quick-input').value.trim();
+    if (!prompt) return;
+    fetchShows(prompt, null, 3, 'Your shows');
+  });
+
+  // Shared links: ?vibe=<prompt>[&era=...][&n=...] re-runs the search (the
+  // backend caches responses, so the sharer's audience usually gets an
+  // instant cache hit).
+  try {
+    const params = new URLSearchParams(location.search);
+    const vibe = params.get('vibe');
+    if (vibe && vibe.trim()) {
+      const n = Math.min(5, Math.max(3, parseInt(params.get('n'), 10) || 3));
+      fetchShows(vibe.trim(), params.get('era') || null, n, 'Shared picks');
+    }
+  } catch (_) { /* malformed URL — just show the home screen */ }
 })();
 
 // ════════════════════════════════════════════════════════════════
@@ -1262,35 +1412,49 @@ function startPath(p) {
   } else if (p === 'owner') {
     fetchOwnerPick();
   } else {
-    // mood path → go to experience screen. Total defaults to the 4-step
-    // simple path; picking a deeper experience expands it to 6 in advance().
-    showScreen('screen-experience', ['screen-home'], 1, 4);
+    showScreen('screen-experience');
+    // Returning visitors: pre-select their remembered experience level so the
+    // first step is a single click (or just "Next").
+    const savedExp = storageGet('deadvibe_exp');
+    if (savedExp && !picks.experience) {
+      const tile = document.querySelector(`.option-tile[data-group="experience"][data-value="${savedExp}"]`);
+      if (tile) pick(tile);
+    }
   }
 }
 
 // ════════════════════════════════════════════════════════════════
 // SCREEN NAVIGATION
+// Steps are derived from one place so "Step X of Y" can't drift
+// from the actual path (previously the totals were hardcoded
+// per-call and disagreed with each other).
 // ════════════════════════════════════════════════════════════════
-function showScreen(targetId, hideIds, step, totalSteps) {
-  // hide current screens
-  (hideIds || []).forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.classList.remove('active');
-  });
-  // hide all screens (catch-all)
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+const STEP_MAPS = {
+  simple: { 'screen-experience': 1, 'screen-vibe-simple': 2, 'screen-freetext': 3 },
+  deep:   { 'screen-experience': 1, 'screen-era': 2, 'screen-vibe-deep': 3, 'screen-deep-prefs': 4, 'screen-freetext': 5 },
+};
 
-  document.getElementById(targetId).classList.add('active');
-  screenHistory.push(targetId);
-  updateProgress(step, totalSteps);
+function pathType() {
+  return (picks.experience === 'newcomer' || picks.experience === 'casual' || !picks.experience)
+    ? 'simple' : 'deep';
 }
 
-function updateProgress(step, total) {
+function updateProgressFor(screenId) {
   const wrap = document.getElementById('progress-wrap');
-  if (!step || !total) { wrap.style.display = 'none'; return; }
+  const map  = STEP_MAPS[pathType()];
+  const step = map[screenId];
+  if (!step) { wrap.style.display = 'none'; return; }
+  const total = Object.keys(map).length;
   wrap.style.display = 'block';
   document.getElementById('progress-fill').style.width = ((step / total) * 100) + '%';
   document.getElementById('progress-label').textContent = `Step ${step} of ${total}`;
+}
+
+function showScreen(targetId) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(targetId).classList.add('active');
+  screenHistory.push(targetId);
+  updateProgressFor(targetId);
 }
 
 // advance() figures out where to go next based on state
@@ -1299,23 +1463,24 @@ function advance() {
 
   if (currentScreen === 'screen-experience') {
     experience = picks.experience;
+    storageSet('deadvibe_exp', experience || '');
     if (experience === 'newcomer' || experience === 'casual') {
-      showScreen('screen-vibe-simple', null, 2, 4);
+      showScreen('screen-vibe-simple');
     } else {
-      showScreen('screen-era', null, 2, 6);
+      showScreen('screen-era');
     }
   }
   else if (currentScreen === 'screen-vibe-simple') {
-    showScreen('screen-freetext', null, 3, 4);
+    showScreen('screen-freetext');
   }
   else if (currentScreen === 'screen-era') {
-    showScreen('screen-vibe-deep', null, 3, 6);
+    showScreen('screen-vibe-deep');
   }
   else if (currentScreen === 'screen-vibe-deep') {
-    showScreen('screen-deep-prefs', null, 4, 6);
+    showScreen('screen-deep-prefs');
   }
   else if (currentScreen === 'screen-deep-prefs') {
-    showScreen('screen-freetext', null, 5, 6);
+    showScreen('screen-freetext');
   }
 
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1327,11 +1492,7 @@ function goBack() {
   const prev = screenHistory[screenHistory.length - 1];
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(prev).classList.add('active');
-
-  // Recalculate progress
-  const total = (experience === 'newcomer' || experience === 'casual') ? 4 : 6;
-  const step = screenHistory.length;
-  updateProgress(step, total);
+  updateProgressFor(prev);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -1349,7 +1510,7 @@ function pick(tile) {
   tile.setAttribute('aria-pressed', 'true');
   picks[group] = tile.dataset.value;
 
-  // Enable the next button for this screen
+  // Enable the next button for this screen and clear its "pick one" hint
   const currentScreen = screenHistory[screenHistory.length - 1];
   const nextBtnMap = {
     'screen-experience':  'next-experience',
@@ -1359,6 +1520,12 @@ function pick(tile) {
   };
   const btnId = nextBtnMap[currentScreen];
   if (btnId) document.getElementById(btnId).disabled = false;
+  const hint = document.querySelector(`#${currentScreen} .pick-hint`);
+  if (hint) hint.style.visibility = 'hidden';
+
+  // The experience pick decides whether the path is 3 or 5 steps — refresh
+  // the label so it never shows a stale total.
+  updateProgressFor(currentScreen);
 }
 
 function pickMini(tile) {
@@ -1439,13 +1606,13 @@ async function fetchOwnerPick() {
   const showList = chosen.map(s => `${s.date} at ${s.venue}`).join('; ');
   const prompt   = `Please give your full enthusiastic recommendation writeup for exactly these three specific Grateful Dead shows, which have been personally curated as all-time favorites: ${showList}. For each show, write a detailed, specific pitch about what makes it extraordinary — reference actual songs, jams, and moments. Treat each one as a gem worth discovering.`;
 
-  await fetchShows(prompt, null, 3, "Personal Favorites", 'Pulling up tonight\'s personal picks…');
+  await fetchShows(prompt, null, 3, "Personal Favorites", 'Pulling up tonight\'s personal picks…', false);
 }
 
 // ════════════════════════════════════════════════════════════════
 // SHARED FETCH + RENDER
 // ════════════════════════════════════════════════════════════════
-async function fetchAndRender({ url, options = {}, eyebrow, timeoutMs = 90000, loadingMsg }) {
+async function fetchAndRender({ url, options = {}, eyebrow, timeoutMs = 90000, loadingMsg, query }) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('progress-wrap').style.display = 'none';
   document.getElementById('results-area').style.display  = 'none';
@@ -1470,7 +1637,9 @@ async function fetchAndRender({ url, options = {}, eyebrow, timeoutMs = 90000, l
 
     const data = await res.json();
     stopLoading();
+    lastQuery = query || null;
     renderResults(data, eyebrow);
+    saveLastResults(data, eyebrow, query);
 
   } catch (err) {
     stopLoading();
@@ -1493,7 +1662,7 @@ async function fetchAndRender({ url, options = {}, eyebrow, timeoutMs = 90000, l
   }
 }
 
-async function fetchShows(prompt, era, numResults, eyebrow, loadingMsg) {
+async function fetchShows(prompt, era, numResults, eyebrow, loadingMsg, allowMore = true) {
   await fetchAndRender({
     url: `${API_BASE}/recommend`,
     options: {
@@ -1503,7 +1672,56 @@ async function fetchShows(prompt, era, numResults, eyebrow, loadingMsg) {
     },
     eyebrow,
     loadingMsg,
+    query: { prompt, era: era || null, numResults, eyebrow, allowMore },
   });
+}
+
+// ════════════════════════════════════════════════════════════════
+// RESULTS ACTIONS — resume, more-like-these, share link
+// ════════════════════════════════════════════════════════════════
+function updateResultsActions() {
+  const actions = document.getElementById('results-actions');
+  if (!lastQuery) { actions.style.display = 'none'; return; }
+  actions.style.display = 'flex';
+  // Hide "more" at the 5-show maximum, or when the query pins specific shows
+  // (Personal Favorites always describes exactly three curated picks).
+  const canMore = lastQuery.allowMore !== false && lastQuery.numResults < 5;
+  document.getElementById('more-btn').style.display = canMore ? '' : 'none';
+  const shareBtn = document.getElementById('share-btn');
+  shareBtn.textContent = '🔗 Copy link to these picks';
+  shareBtn.disabled = false;
+}
+
+function resumeLast() {
+  const saved = loadLastResults();
+  if (!saved) { refreshResumeButton(); return; }
+  lastQuery = saved.query || null;
+  renderResults(saved.data, saved.eyebrow);
+}
+
+async function fetchMore() {
+  if (!lastQuery) return;
+  await fetchShows(lastQuery.prompt, lastQuery.era, 5, lastQuery.eyebrow);
+}
+
+function buildShareUrl() {
+  const params = new URLSearchParams();
+  params.set('vibe', lastQuery.prompt);
+  if (lastQuery.era) params.set('era', lastQuery.era);
+  if (lastQuery.numResults && lastQuery.numResults !== 3) params.set('n', lastQuery.numResults);
+  return `${location.origin}${location.pathname}?${params.toString()}`;
+}
+
+async function copyShareLink(btn) {
+  if (!lastQuery) return;
+  const url = buildShareUrl();
+  try {
+    await navigator.clipboard.writeText(url);
+    btn.textContent = '✓ Link copied';
+  } catch (_) {
+    // Clipboard API unavailable (e.g. non-HTTPS) — let the user copy manually.
+    window.prompt('Copy this link:', url);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1541,7 +1759,7 @@ function renderResults(data, eyebrow) {
           <div class="show-date">${esc(fmtDate(rec.date))}</div>
           <div class="show-venue">${esc(rec.venue || '')}</div>
         </div>
-        <div class="match-wrap">
+        <div class="match-wrap" title="The AI's estimate of how closely this show fits what you asked for — a guide, not gospel">
           <div class="match-pct">${pct}%</div>
           <div class="match-lbl">Vibe Match</div>
           <div class="match-bar"><div class="match-fill" style="width:${pct}%"></div></div>
@@ -1593,6 +1811,9 @@ function renderResults(data, eyebrow) {
     document.getElementById('deeper-cut').style.display = 'none';
   }
 
+  updateResultsActions();
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('progress-wrap').style.display = 'none';
   document.getElementById('results-area').style.display = 'block';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -1649,10 +1870,13 @@ document.getElementById('newsletter-form').addEventListener('submit', async (e) 
 // ════════════════════════════════════════════════════════════════
 function restart() {
   // Reset state
-  path = null; experience = null; screenHistory = [];
+  path = null; experience = null; screenHistory = ['screen-home'];
   Object.keys(picks).forEach(k => picks[k] = null);
   document.getElementById('free-text').value = '';
+  document.getElementById('quick-input').value = '';
   document.getElementById('cards').innerHTML = '';
+  document.querySelectorAll('.pick-hint').forEach(h => h.style.visibility = '');
+  refreshResumeButton();
 
   // Reset tile selections
   document.querySelectorAll('.option-tile, .mini-tile').forEach(t => {
