@@ -2,7 +2,7 @@
 
 A minimal app that turns a "vibe" description into Grateful Dead live-show recommendations.
 
-- `app.py` — FastAPI backend (Claude-powered `/recommend`, `/feedback`, `/health`). Runs on port 8000.
+- `app.py` — FastAPI backend (Claude-powered `/recommend`, `/history/today`, plus `/feedback`, `/subscribe`, `/health`). Runs on port 8000.
 - `index.html` — static single-page frontend. Calls the backend at `API_BASE` (`http://localhost:8000`).
 - `requirements.txt` — Python dependencies.
 - `Procfile` — production start command (`uvicorn app:app`), used by hosts like Railway.
@@ -24,5 +24,6 @@ A minimal app that turns a "vibe" description into Grateful Dead live-show recom
 ### Gotchas
 - The frontend hardcodes `const API_BASE = "http://localhost:8000"` in `index.html`. It only works against a backend reachable at that origin.
 - `/recommend` is rate-limited (10/min per IP) and caches identical requests for 6 hours, so repeated identical prompts return cached results rather than re-calling Claude.
-- Feedback votes persist to a local `feedback.db` SQLite file (auto-created on startup).
+- Feedback votes (👍/👎 on each result card) and newsletter signups persist to a local `feedback.db` SQLite file (auto-created on startup).
+- The tip-jar box in the frontend is hidden unless `TIP_JAR_URL` (a const near the top of the script in `index.html`) is set to a payment link.
 - There is no lint config or automated test suite in this repo.

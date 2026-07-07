@@ -13,6 +13,7 @@ Setup:
 """
 
 import os
+import re
 import json
 import time
 import sqlite3
@@ -246,6 +247,12 @@ def init_db() -> None:
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS subscribers (
+                email      TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
 
 init_db()
 
@@ -355,6 +362,32 @@ def _enrich_all(recommendations: list[dict]) -> None:
             list(pool.map(_enrich_recommendation, recommendations))
 
 
+def _verify_and_filter(data: dict) -> dict:
+    """Enrich recommendations, drop fabricated dates, and renumber ranks.
+
+    Each recommendation makes independent setlist.fm / archive.org calls, so
+    _enrich_all fans them out concurrently. Shows whose date setlist.fm
+    confirms never happened are dropped — this is how we stop the model from
+    inventing performances. Dates we simply couldn't check are kept but
+    flagged (date_verified=false) so the frontend can label them.
+    """
+    recommendations = data.get("recommendations", [])
+    if not recommendations:
+        return data
+
+    _enrich_all(recommendations)
+
+    kept = [r for r in recommendations if r.pop("_date_status", None) != DATE_NOT_FOUND]
+    dropped = len(recommendations) - len(kept)
+    if dropped:
+        log.info(f"Dropped {dropped} recommendation(s) with unverifiable/fabricated dates")
+    # Renumber ranks so the displayed list has no gaps after filtering.
+    for i, rec in enumerate(kept, start=1):
+        rec["rank"] = i
+    data["recommendations"] = kept
+    return data
+
+
 HISTORY_SYSTEM_PROMPT = """You are a Grateful Dead historian. Given a calendar month and day, return the best Grateful Dead live performances that occurred on that exact date in any year between 1965 and 1995.
 
 Return ONLY valid JSON — no markdown fences, no commentary. Use this structure:
@@ -402,8 +435,7 @@ def _generate_history(month: int, day: int) -> dict:
         model=HISTORY_MODEL,
         max_tokens=HISTORY_MAX_TOKENS,
     )
-    _enrich_all(data.get("recommendations", []))
-    return data
+    return _verify_and_filter(data)
 
 
 def _get_or_generate_history(month: int, day: int) -> dict:
@@ -520,6 +552,12 @@ class FeedbackRequest(BaseModel):
     venue: Optional[str] = None
     is_match: bool                    # True = 👍, False = 👎
 
+class SubscribeRequest(BaseModel):
+    email: str
+
+# Deliberately loose — real validation happens when the first email bounces.
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
@@ -579,69 +617,29 @@ def recommend(request: Request, payload: VibeRequest):
         model="claude-opus-4-6",
         max_tokens=4096,
     )
-
-    _enrich_all(data.get("recommendations", []))
-    # Claude occasionally returns slightly malformed JSON; retry once before failing.
-    data = None
-    for attempt in range(2):
-        try:
-            response = client.messages.create(
-                model="claude-opus-4-6",
-                max_tokens=4096,
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
-            )
-        except anthropic.AuthenticationError:
-            raise HTTPException(401, "Invalid Anthropic API key — check your .env file")
-        except anthropic.RateLimitError:
-            raise HTTPException(429, "Rate limited — please wait a moment and try again")
-        except Exception as e:
-            log.error(f"Claude API error: {e}")
-            raise HTTPException(500, f"AI error: {str(e)}")
-
-        raw = response.content[0].text.strip()
-
-        # Strip any accidental markdown fences Claude might add
-        if raw.startswith("```"):
-            parts_split = raw.split("```")
-            if len(parts_split) >= 2:
-                raw = parts_split[1]
-                if raw.startswith("json"):
-                    raw = raw[4:].strip()
-
-        try:
-            data = json.loads(raw)
-            break
-        except json.JSONDecodeError as e:
-            log.warning(f"Bad JSON from Claude (attempt {attempt + 1}/2): {e}\nRaw: {raw[:500]}")
-
-    if data is None:
-        raise HTTPException(500, "AI returned an unexpected format — please try again")
-
-    # Verify dates + attach setlists / validate archive IDs. Each recommendation
-    # makes independent setlist.fm / archive.org calls, so fan them out
-    # concurrently instead of blocking serially (previously the dominant
-    # post-AI latency).
-    recommendations = data.get("recommendations", [])
-    if recommendations:
-        with ThreadPoolExecutor(max_workers=min(8, len(recommendations))) as pool:
-            list(pool.map(_enrich_recommendation, recommendations))
-
-        # Drop shows whose date setlist.fm confirms never happened — this is how
-        # we stop the model from inventing performances (e.g. in "Today in Dead
-        # History"). Dates we simply couldn't check are kept but flagged
-        # (date_verified=false) so the frontend can label them as unverified.
-        kept = [r for r in recommendations if r.pop("_date_status", None) != DATE_NOT_FOUND]
-        dropped = len(recommendations) - len(kept)
-        if dropped:
-            log.info(f"Dropped {dropped} recommendation(s) with unverifiable/fabricated dates")
-        # Renumber ranks so the displayed list has no gaps after filtering.
-        for i, rec in enumerate(kept, start=1):
-            rec["rank"] = i
-        data["recommendations"] = kept
+    data = _verify_and_filter(data)
 
     _cache_set(cache_key, data)
     return data
+
+@app.post("/subscribe")
+@limiter.limit("5/minute")
+def subscribe(request: Request, payload: SubscribeRequest):
+    """Add an email to the 'Today in Dead History' newsletter list."""
+    email = payload.email.strip().lower()
+    if len(email) > 254 or not EMAIL_RE.match(email):
+        raise HTTPException(400, "That doesn't look like a valid email address")
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                "INSERT INTO subscribers (email) VALUES (?) ON CONFLICT(email) DO NOTHING",
+                (email,),
+            )
+    except Exception as e:
+        log.error(f"Failed to store subscriber: {e}")
+        raise HTTPException(500, "Could not save your signup — please try again")
+    return {"status": "ok"}
+
 
 @app.post("/feedback")
 @limiter.limit("30/minute")
