@@ -1332,6 +1332,7 @@ function renderResults(data, eyebrow) {
         ${mHTML ? `<div class="moments-label">Key Moments</div><ul class="moments">${mHTML}</ul>` : ''}
         ${renderSetlist(rec.setlist)}
       </div>
+      ${rec.date_verified === false ? `<div class="caveat">⚠ We couldn't confirm this exact date against setlist.fm — treat it as unverified.</div>` : ''}
       ${rec.caveats ? `<div class="caveat">${esc(rec.caveats)}</div>` : ''}
       <div class="card-foot">
         <div class="rec-info">
@@ -1343,6 +1344,17 @@ function renderResults(data, eyebrow) {
 
     container.appendChild(card);
   });
+
+  // Every date is checked against setlist.fm and fabricated ones are removed,
+  // so an empty list means nothing could be verified — say so honestly rather
+  // than showing made-up shows.
+  if (!container.children.length) {
+    const note = document.createElement('div');
+    note.className = 'card';
+    note.style.padding = '26px';
+    note.innerHTML = `<p class="pitch">No confirmed Grateful Dead shows turned up here. Every date is checked against setlist.fm and only verified performances are shown — so nothing was made up. Try a different vibe or date.</p>`;
+    container.appendChild(note);
+  }
 
   if (data.deeper_cut) {
     document.getElementById('deeper-cut-text').textContent = data.deeper_cut;
