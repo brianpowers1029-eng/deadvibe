@@ -1333,6 +1333,38 @@ function refreshResumeButton() {
 }
 
 // ════════════════════════════════════════════════════════════════
+// LOADING STATE — rotate through status messages so a long Claude
+// call doesn't look like a frozen page.
+// ════════════════════════════════════════════════════════════════
+const LOADING_MESSAGES = [
+  "Searching through 30 years of shows…",
+  "Digging through the tape vault…",
+  "Weighing first sets against second sets…",
+  "Checking dates against setlist.fm…",
+  "Hunting down the best recordings on archive.org…",
+  "Ranking the contenders…",
+];
+let loadingTimer = null;
+
+function startLoading(firstMsg) {
+  const msgEl = document.getElementById('loading-msg');
+  msgEl.textContent = firstMsg || LOADING_MESSAGES[0];
+  let i = 0;
+  clearInterval(loadingTimer);
+  loadingTimer = setInterval(() => {
+    i = (i + 1) % LOADING_MESSAGES.length;
+    msgEl.textContent = LOADING_MESSAGES[i];
+  }, 6000);
+  document.getElementById('loading').style.display = 'block';
+}
+
+function stopLoading() {
+  clearInterval(loadingTimer);
+  loadingTimer = null;
+  document.getElementById('loading').style.display = 'none';
+}
+
+// ════════════════════════════════════════════════════════════════
 // INIT — set today's date on the home badge
 // ════════════════════════════════════════════════════════════════
 (function init() {
@@ -1369,38 +1401,6 @@ function refreshResumeButton() {
     }
   } catch (_) { /* malformed URL — just show the home screen */ }
 })();
-
-// ════════════════════════════════════════════════════════════════
-// LOADING STATE — rotate through status messages so a long Claude
-// call doesn't look like a frozen page.
-// ════════════════════════════════════════════════════════════════
-const LOADING_MESSAGES = [
-  "Searching through 30 years of shows…",
-  "Digging through the tape vault…",
-  "Weighing first sets against second sets…",
-  "Checking dates against setlist.fm…",
-  "Hunting down the best recordings on archive.org…",
-  "Ranking the contenders…",
-];
-let loadingTimer = null;
-
-function startLoading(firstMsg) {
-  const msgEl = document.getElementById('loading-msg');
-  msgEl.textContent = firstMsg || LOADING_MESSAGES[0];
-  let i = 0;
-  clearInterval(loadingTimer);
-  loadingTimer = setInterval(() => {
-    i = (i + 1) % LOADING_MESSAGES.length;
-    msgEl.textContent = LOADING_MESSAGES[i];
-  }, 6000);
-  document.getElementById('loading').style.display = 'block';
-}
-
-function stopLoading() {
-  clearInterval(loadingTimer);
-  loadingTimer = null;
-  document.getElementById('loading').style.display = 'none';
-}
 
 // ════════════════════════════════════════════════════════════════
 // PATH SELECTION (Home screen)
