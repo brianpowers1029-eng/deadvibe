@@ -13,11 +13,13 @@ Setup:
 """
 
 import os
+import re
 import json
 import time
 import sqlite3
 import logging
 import threading
+from contextlib import asynccontextmanager
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
@@ -175,7 +177,14 @@ def _enrich_recommendation(rec: dict) -> None:
         rec["archive_org_id"] = None
 
 # ── App ───────────────────────────────────────────────────────────────────────
-app = FastAPI(title="Dead Vibe Matcher", version="1.0.0")
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # Pre-warm today's "Dead History" in the background so the first visitor
+    # doesn't eat the Claude latency. Runs after the module is fully loaded.
+    threading.Thread(target=_prewarm_today_history, daemon=True).start()
+    yield
+
+app = FastAPI(title="Dead Vibe Matcher", version="1.0.0", lifespan=_lifespan)
 
 # Lock CORS to your site in production by setting ALLOWED_ORIGINS to a
 # comma-separated list of origins (e.g. "https://deadvibe.app"). Defaults to "*".
@@ -199,28 +208,53 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── Response Cache ────────────────────────────────────────────────────────────
-# Identical requests (notably "Today in Dead History", which is the same for
-# everyone on a given day) reuse a cached result instead of re-calling Claude.
+# Identical requests reuse a cached result instead of re-calling Claude. Stored
+# in SQLite so it survives restarts — the dev server runs with reload=True and
+# production redeploys otherwise wiped a purely in-memory cache.
 CACHE_TTL_SECONDS = 6 * 60 * 60   # 6 hours
 CACHE_MAX_ENTRIES = 500
-_cache: dict[str, tuple[float, dict]] = {}
 
 def _cache_get(key: str) -> dict | None:
-    entry = _cache.get(key)
-    if not entry:
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute(
+            "SELECT payload, created_at FROM response_cache WHERE cache_key = ?",
+            (key,),
+        ).fetchone()
+    if not row:
         return None
-    ts, value = entry
-    if time.time() - ts > CACHE_TTL_SECONDS:
-        _cache.pop(key, None)
+    payload_json, created_at = row
+    created_ts = datetime.fromisoformat(created_at).timestamp()
+    if time.time() - created_ts > CACHE_TTL_SECONDS:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("DELETE FROM response_cache WHERE cache_key = ?", (key,))
         return None
-    return value
+    return json.loads(payload_json)
 
 def _cache_set(key: str, value: dict) -> None:
-    if len(_cache) >= CACHE_MAX_ENTRIES:
-        # Drop the oldest entry to bound memory.
-        oldest = min(_cache, key=lambda k: _cache[k][0])
-        _cache.pop(oldest, None)
-    _cache[key] = (time.time(), value)
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO response_cache (cache_key, payload)
+            VALUES (?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                payload = excluded.payload,
+                created_at = datetime('now')
+            """,
+            (key, json.dumps(value)),
+        )
+        # Prune expired entries and bound total size.
+        conn.execute(
+            "DELETE FROM response_cache WHERE created_at < datetime('now', ?)",
+            (f"-{CACHE_TTL_SECONDS} seconds",),
+        )
+        conn.execute(
+            """
+            DELETE FROM response_cache WHERE cache_key NOT IN (
+                SELECT cache_key FROM response_cache ORDER BY created_at DESC LIMIT ?
+            )
+            """,
+            (CACHE_MAX_ENTRIES,),
+        )
 
 # ── Feedback Store ────────────────────────────────────────────────────────────
 # Persist 👍/👎 votes so we can see which recommendations actually land.
@@ -241,6 +275,19 @@ def init_db() -> None:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS history_cache (
+                cache_key  TEXT PRIMARY KEY,
+                payload    TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS subscribers (
+                email      TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS response_cache (
                 cache_key  TEXT PRIMARY KEY,
                 payload    TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -355,6 +402,32 @@ def _enrich_all(recommendations: list[dict]) -> None:
             list(pool.map(_enrich_recommendation, recommendations))
 
 
+def _verify_and_filter(data: dict) -> dict:
+    """Enrich recommendations, drop fabricated dates, and renumber ranks.
+
+    Each recommendation makes independent setlist.fm / archive.org calls, so
+    _enrich_all fans them out concurrently. Shows whose date setlist.fm
+    confirms never happened are dropped — this is how we stop the model from
+    inventing performances. Dates we simply couldn't check are kept but
+    flagged (date_verified=false) so the frontend can label them.
+    """
+    recommendations = data.get("recommendations", [])
+    if not recommendations:
+        return data
+
+    _enrich_all(recommendations)
+
+    kept = [r for r in recommendations if r.pop("_date_status", None) != DATE_NOT_FOUND]
+    dropped = len(recommendations) - len(kept)
+    if dropped:
+        log.info(f"Dropped {dropped} recommendation(s) with unverifiable/fabricated dates")
+    # Renumber ranks so the displayed list has no gaps after filtering.
+    for i, rec in enumerate(kept, start=1):
+        rec["rank"] = i
+    data["recommendations"] = kept
+    return data
+
+
 HISTORY_SYSTEM_PROMPT = """You are a Grateful Dead historian. Given a calendar month and day, return the best Grateful Dead live performances that occurred on that exact date in any year between 1965 and 1995.
 
 Return ONLY valid JSON — no markdown fences, no commentary. Use this structure:
@@ -402,8 +475,7 @@ def _generate_history(month: int, day: int) -> dict:
         model=HISTORY_MODEL,
         max_tokens=HISTORY_MAX_TOKENS,
     )
-    _enrich_all(data.get("recommendations", []))
-    return data
+    return _verify_and_filter(data)
 
 
 def _get_or_generate_history(month: int, day: int) -> dict:
@@ -520,15 +592,16 @@ class FeedbackRequest(BaseModel):
     venue: Optional[str] = None
     is_match: bool                    # True = 👍, False = 👎
 
+class SubscribeRequest(BaseModel):
+    email: str
+
+# Deliberately loose — real validation happens when the first email bounces.
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "1.0.0"}
-
-
-@app.on_event("startup")
-def _startup_prewarm_history() -> None:
-    threading.Thread(target=_prewarm_today_history, daemon=True).start()
 
 
 @app.get("/history/today")
@@ -579,69 +652,29 @@ def recommend(request: Request, payload: VibeRequest):
         model="claude-opus-4-6",
         max_tokens=4096,
     )
-
-    _enrich_all(data.get("recommendations", []))
-    # Claude occasionally returns slightly malformed JSON; retry once before failing.
-    data = None
-    for attempt in range(2):
-        try:
-            response = client.messages.create(
-                model="claude-opus-4-6",
-                max_tokens=4096,
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
-            )
-        except anthropic.AuthenticationError:
-            raise HTTPException(401, "Invalid Anthropic API key — check your .env file")
-        except anthropic.RateLimitError:
-            raise HTTPException(429, "Rate limited — please wait a moment and try again")
-        except Exception as e:
-            log.error(f"Claude API error: {e}")
-            raise HTTPException(500, f"AI error: {str(e)}")
-
-        raw = response.content[0].text.strip()
-
-        # Strip any accidental markdown fences Claude might add
-        if raw.startswith("```"):
-            parts_split = raw.split("```")
-            if len(parts_split) >= 2:
-                raw = parts_split[1]
-                if raw.startswith("json"):
-                    raw = raw[4:].strip()
-
-        try:
-            data = json.loads(raw)
-            break
-        except json.JSONDecodeError as e:
-            log.warning(f"Bad JSON from Claude (attempt {attempt + 1}/2): {e}\nRaw: {raw[:500]}")
-
-    if data is None:
-        raise HTTPException(500, "AI returned an unexpected format — please try again")
-
-    # Verify dates + attach setlists / validate archive IDs. Each recommendation
-    # makes independent setlist.fm / archive.org calls, so fan them out
-    # concurrently instead of blocking serially (previously the dominant
-    # post-AI latency).
-    recommendations = data.get("recommendations", [])
-    if recommendations:
-        with ThreadPoolExecutor(max_workers=min(8, len(recommendations))) as pool:
-            list(pool.map(_enrich_recommendation, recommendations))
-
-        # Drop shows whose date setlist.fm confirms never happened — this is how
-        # we stop the model from inventing performances (e.g. in "Today in Dead
-        # History"). Dates we simply couldn't check are kept but flagged
-        # (date_verified=false) so the frontend can label them as unverified.
-        kept = [r for r in recommendations if r.pop("_date_status", None) != DATE_NOT_FOUND]
-        dropped = len(recommendations) - len(kept)
-        if dropped:
-            log.info(f"Dropped {dropped} recommendation(s) with unverifiable/fabricated dates")
-        # Renumber ranks so the displayed list has no gaps after filtering.
-        for i, rec in enumerate(kept, start=1):
-            rec["rank"] = i
-        data["recommendations"] = kept
+    data = _verify_and_filter(data)
 
     _cache_set(cache_key, data)
     return data
+
+@app.post("/subscribe")
+@limiter.limit("5/minute")
+def subscribe(request: Request, payload: SubscribeRequest):
+    """Add an email to the 'Today in Dead History' newsletter list."""
+    email = payload.email.strip().lower()
+    if len(email) > 254 or not EMAIL_RE.match(email):
+        raise HTTPException(400, "That doesn't look like a valid email address")
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                "INSERT INTO subscribers (email) VALUES (?) ON CONFLICT(email) DO NOTHING",
+                (email,),
+            )
+    except Exception as e:
+        log.error(f"Failed to store subscriber: {e}")
+        raise HTTPException(500, "Could not save your signup — please try again")
+    return {"status": "ok"}
+
 
 @app.post("/feedback")
 @limiter.limit("30/minute")

@@ -4,7 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0e0c09" />
-  <title>Dead Vibe</title>
+  <title>Dead Vibe — Find Your Grateful Dead Show for Tonight</title>
+  <meta name="description" content="Describe a vibe and get matched to the Grateful Dead live shows that deliver it — real dates, verified setlists, free streams on archive.org." />
+  <meta property="og:title" content="Dead Vibe — find your Grateful Dead show for tonight" />
+  <meta property="og:description" content="Describe a vibe and get matched to the Grateful Dead live shows that deliver it — real dates, verified setlists, free streams." />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Dead Vibe" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Dead Vibe — find your Grateful Dead show for tonight" />
+  <meta name="twitter:description" content="Describe a vibe and get matched to the Grateful Dead live shows that deliver it." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='15' fill='%230e0c09' stroke='%23c8890a' stroke-width='2'/><path d='M17 5 L9 18 h6 l-1 9 8-13 h-6 z' fill='%23e8a820'/></svg>" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -131,6 +139,21 @@
       gap: 14px;
     }
 
+    /* Tiles are real <button>s for keyboard access — reset the UA styles. */
+    .path-tile, .option-tile, .mini-tile {
+      font-family: inherit;
+      font-size: inherit;
+      color: inherit;
+      text-align: left;
+    }
+
+    .path-tile:focus-visible, .option-tile:focus-visible, .mini-tile:focus-visible,
+    .btn-next:focus-visible, .btn-back:focus-visible, .btn-restart:focus-visible,
+    .fb-btn:focus-visible, .btn-subscribe:focus-visible {
+      outline: 2px solid var(--amber);
+      outline-offset: 2px;
+    }
+
     .path-tile {
       background: var(--surface2);
       border: 1.5px solid var(--border);
@@ -155,9 +178,10 @@
       margin-top: 2px;
     }
 
-    .path-text {}
+    .path-text { display: block; }
 
     .path-label {
+      display: block;
       font-size: 1.15rem;
       color: var(--text);
       font-weight: bold;
@@ -165,6 +189,7 @@
     }
 
     .path-desc {
+      display: block;
       font-size: 0.85rem;
       color: var(--muted);
       line-height: 1.45;
@@ -181,6 +206,43 @@
       border-radius: 20px;
       letter-spacing: 0.04em;
     }
+
+    /* ── Quick vibe search (home) ────────────────────────────── */
+    .quick-vibe {
+      margin-top: 24px;
+      padding-top: 20px;
+      border-top: 1px dashed var(--border);
+    }
+
+    .quick-vibe-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    #quick-form { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    #quick-input {
+      flex: 1;
+      min-width: 200px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.95rem;
+      padding: 11px 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    #quick-input:focus { border-color: var(--amber-dim); }
+    #quick-input::placeholder { color: var(--muted); font-style: italic; }
+
+    /* ── Resume last results ─────────────────────────────────── */
+    .resume-row { margin-bottom: 14px; text-align: right; }
 
     /* ── Option Tiles (quiz steps — smaller, 2-col grid) ────── */
     .option-grid {
@@ -215,8 +277,8 @@
     }
 
     .tile-icon { font-size: 1.3rem; display: block; margin-bottom: 7px; }
-    .tile-label { font-size: 0.97rem; color: var(--text); font-weight: bold; margin-bottom: 2px; }
-    .tile-desc  { font-size: 0.76rem; color: var(--muted); line-height: 1.4; }
+    .tile-label { display: block; font-size: 0.97rem; color: var(--text); font-weight: bold; margin-bottom: 2px; }
+    .tile-desc  { display: block; font-size: 0.76rem; color: var(--muted); line-height: 1.4; }
 
     /* ── Mini Pref Groups (deep prefs screen) ────────────────── */
     .pref-group { margin-bottom: 24px; }
@@ -261,6 +323,14 @@
       align-items: center;
       margin-top: 24px;
       gap: 12px;
+    }
+
+    .pick-hint {
+      flex: 1;
+      text-align: right;
+      font-size: 0.78rem;
+      color: var(--muted);
+      font-style: italic;
     }
 
     .btn-back {
@@ -343,6 +413,13 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
     #loading p { font-style: italic; font-size: 0.95rem; }
+
+    .loading-note {
+      margin-top: 10px;
+      font-size: 0.78rem !important;
+      color: var(--muted);
+      opacity: 0.8;
+    }
 
     /* ── Error ───────────────────────────────────────────────── */
     #error-box {
@@ -451,7 +528,7 @@
     .show-date { font-size: 1.18rem; color: var(--amber-glow); font-weight: bold; margin-bottom: 3px; }
     .show-venue { font-size: 0.87rem; color: var(--muted); line-height: 1.4; }
 
-    .match-wrap { text-align: right; flex-shrink: 0; }
+    .match-wrap { text-align: right; flex-shrink: 0; cursor: help; }
     .match-pct { font-size: 1.45rem; font-weight: bold; color: var(--amber-glow); line-height: 1; }
     .match-lbl { font-size: 0.62rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
     .match-bar { width: 58px; height: 3px; background: var(--surface2); border-radius: 2px; margin-top: 5px; overflow: hidden; }
@@ -484,7 +561,8 @@
       border-bottom: 1px solid var(--border);
     }
     .moments li:last-child { border-bottom: none; }
-    .moments li::before { content: "⚡"; position: absolute; left: 0; font-size: 0.7rem; top: 7px; }
+    /* Text glyph, not emoji — renders consistently across platforms. */
+    .moments li::before { content: "▸"; color: var(--amber); position: absolute; left: 2px; font-size: 0.8rem; top: 5px; }
 
     /* ── Setlist (from setlist.fm) ───────────────────────────── */
     .setlist-details {
@@ -582,21 +660,25 @@
     .aud  { background: rgba(100,80,50,0.25);  color: #c8a870; border: 1px solid rgba(100,80,50,0.4); }
     .other{ background: rgba(80,80,100,0.25);  color: #a0a8c8; border: 1px solid rgba(80,80,100,0.4); }
 
+    /* The archive link is the product's primary CTA — style it like one. */
     .listen-btn {
       display: inline-flex;
       align-items: center; gap: 6px;
-      padding: 8px 16px;
-      background: transparent;
-      border: 1px solid var(--amber-dim);
-      color: var(--amber);
+      padding: 9px 18px;
+      background: linear-gradient(135deg, #8a5f07, #c8890a);
+      border: none;
+      color: #fff8e8;
       font-family: 'Georgia', serif;
-      font-size: 0.82rem;
+      font-size: 0.84rem;
+      font-weight: bold;
       border-radius: 6px;
       text-decoration: none;
-      transition: background 0.2s, border-color 0.2s, color 0.2s;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+      transition: background 0.2s, transform 0.2s;
       white-space: nowrap;
     }
-    .listen-btn:hover { background: rgba(200,137,10,0.1); border-color: var(--amber); color: var(--amber-glow); }
+    .listen-btn:hover { background: linear-gradient(135deg, #a06e08, #d99910); transform: translateY(-1px); }
+    .listen-btn:focus-visible { outline: 2px solid var(--amber-glow); outline-offset: 2px; }
 
     .caveat {
       font-size: 0.78rem; color: #c89060;
@@ -606,6 +688,39 @@
       background: rgba(200,100,0,0.05);
     }
     .caveat::before { content: "⚠ "; }
+
+    /* ── Feedback row ────────────────────────────────────────── */
+    .feedback-row {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 9px 22px;
+      border-top: 1px solid var(--border);
+      min-height: 46px;
+    }
+
+    .feedback-q { font-size: 0.76rem; color: var(--muted); font-style: italic; }
+
+    .fb-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: border-color 0.18s, background 0.18s, transform 0.18s;
+    }
+
+    .fb-btn:hover:not(:disabled) {
+      border-color: var(--amber-dim);
+      background: rgba(200,137,10,0.08);
+      transform: translateY(-1px);
+    }
+
+    .fb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .feedback-thanks { font-size: 0.8rem; color: var(--amber); font-style: italic; }
 
     /* ── Deeper Cut ──────────────────────────────────────────── */
     #deeper-cut {
@@ -624,6 +739,90 @@
     }
     #deeper-cut p { color: var(--muted); font-style: italic; font-size: 0.92rem; line-height: 1.6; }
 
+    /* ── Results actions (share / more) ──────────────────────── */
+    #results-actions {
+      display: none;
+      margin-top: 20px;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .btn-action {
+      background: none;
+      border: 1px solid var(--amber-dim);
+      color: var(--amber);
+      font-family: inherit;
+      font-size: 0.88rem;
+      padding: 10px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: border-color 0.18s, background 0.18s, color 0.18s;
+    }
+
+    .btn-action:hover { background: rgba(200,137,10,0.08); border-color: var(--amber); color: var(--amber-glow); }
+    .btn-action:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+    /* ── Support + Newsletter ────────────────────────────────── */
+    .extras { margin-top: 40px; display: flex; flex-direction: column; gap: 16px; }
+
+    .extra-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+    }
+
+    .extra-box strong {
+      display: block;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--amber);
+      margin-bottom: 8px;
+    }
+
+    .extra-box p { color: var(--muted); font-size: 0.9rem; line-height: 1.6; }
+    .extra-box a { color: var(--amber); text-decoration: none; }
+    .extra-box a:hover { color: var(--amber-glow); }
+
+    #newsletter-form { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+
+    #newsletter-email {
+      flex: 1;
+      min-width: 200px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.92rem;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    #newsletter-email:focus { border-color: var(--amber-dim); }
+    #newsletter-email::placeholder { color: var(--muted); font-style: italic; }
+
+    .btn-subscribe {
+      background: linear-gradient(135deg, #8a5f07, #c8890a);
+      color: #fff8e8;
+      font-family: inherit;
+      font-size: 0.92rem;
+      font-weight: bold;
+      padding: 10px 22px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.18s, opacity 0.18s;
+    }
+
+    .btn-subscribe:hover:not(:disabled) { background: linear-gradient(135deg, #a06e08, #d99910); }
+    .btn-subscribe:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    #newsletter-status { display: block; margin-top: 10px; font-size: 0.82rem; color: var(--amber); font-style: italic; }
+
     /* ── Footer ──────────────────────────────────────────────── */
     footer {
       text-align: center;
@@ -634,6 +833,14 @@
     }
     footer a { color: var(--amber-dim); text-decoration: none; }
     footer a:hover { color: var(--amber); }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
 
     /* ── Responsive ──────────────────────────────────────────── */
     @media (max-width: 560px) {
@@ -654,6 +861,11 @@
 
 <main>
 
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- ERROR — kept above the screens so a failure is always seen  -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div id="error-box" role="alert"></div>
+
   <!-- ── Progress Bar ──────────────────────────────────────────── -->
   <div id="progress-wrap">
     <div class="progress-bar-track">
@@ -666,36 +878,49 @@
   <!-- SCREEN: Home — choose your path                             -->
   <!-- ════════════════════════════════════════════════════════════ -->
   <div class="screen active" id="screen-home">
+    <div class="resume-row" id="resume-row" style="display:none">
+      <button type="button" class="btn-restart" onclick="resumeLast()">↩ Back to your last picks</button>
+    </div>
     <div class="screen-card">
       <div class="screen-q">What brings you here tonight?</div>
       <div class="screen-sub">Choose how you want to find your show</div>
       <div class="path-grid">
 
-        <div class="path-tile" onclick="startPath('mood')">
+        <button type="button" class="path-tile" onclick="startPath('mood')">
           <span class="path-icon">🎧</span>
-          <div class="path-text">
-            <div class="path-label">Describe my mood</div>
-            <div class="path-desc">Answer a few questions and we'll match you with the perfect show for how you're feeling right now.</div>
-          </div>
-        </div>
+          <span class="path-text">
+            <span class="path-label">Describe my mood</span>
+            <span class="path-desc">Answer a few questions and we'll match you with the perfect show for how you're feeling right now.</span>
+          </span>
+        </button>
 
-        <div class="path-tile" onclick="startPath('history')">
+        <button type="button" class="path-tile" onclick="startPath('history')">
           <span class="path-icon">📅</span>
-          <div class="path-text">
-            <div class="path-label">Today in Dead History</div>
-            <div class="path-desc">Find shows that the Grateful Dead played on this exact date in history — any year, ranked by how good they were.</div>
+          <span class="path-text">
+            <span class="path-label">Today in Dead History</span>
+            <span class="path-desc">Find shows that the Grateful Dead played on this exact date in history — any year, ranked by how good they were.</span>
             <span class="path-date-badge" id="today-badge"></span>
-          </div>
-        </div>
+          </span>
+        </button>
 
-        <div class="path-tile" onclick="startPath('owner')">
+        <button type="button" class="path-tile" onclick="startPath('owner')">
           <span class="path-icon">🎸</span>
-          <div class="path-text">
-            <div class="path-label">Personal Favorites</div>
-            <div class="path-desc">No time for questions? Get a hand-picked recommendation from the site owner's personal list of 25 essential shows.</div>
-          </div>
-        </div>
+          <span class="path-text">
+            <span class="path-label">Personal Favorites</span>
+            <span class="path-desc">No time for questions? Get a hand-picked recommendation from the site owner's personal list of 25 essential shows.</span>
+          </span>
+        </button>
 
+      </div>
+
+      <div class="quick-vibe">
+        <div class="quick-vibe-label">Know what you're after? Just type it</div>
+        <form id="quick-form">
+          <input id="quick-input" type="text" maxlength="2000"
+                 placeholder='e.g. "face-melting &#39;74 space jam" or "mellow Sunday morning"'
+                 aria-label="Describe your vibe" />
+          <button type="submit" class="btn-subscribe">Find shows</button>
+        </form>
       </div>
     </div>
   </div>
@@ -708,34 +933,35 @@
       <div class="screen-q">How familiar are you with the Dead?</div>
       <div class="screen-sub">This helps us calibrate how deep to dig</div>
       <div class="option-grid">
-        <div class="option-tile" data-group="experience" data-value="newcomer" onclick="pick(this)">
+        <button type="button" class="option-tile" data-group="experience" data-value="newcomer" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🌱</span>
-          <div class="tile-label">Brand new</div>
-          <div class="tile-desc">I've barely heard them — give me a gateway show</div>
-        </div>
-        <div class="option-tile" data-group="experience" data-value="casual" onclick="pick(this)">
+          <span class="tile-label">Brand new</span>
+          <span class="tile-desc">I've barely heard them — give me a gateway show</span>
+        </button>
+        <button type="button" class="option-tile" data-group="experience" data-value="casual" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">👂</span>
-          <div class="tile-label">Getting into it</div>
-          <div class="tile-desc">I know a few songs and want to go deeper</div>
-        </div>
-        <div class="option-tile" data-group="experience" data-value="fan" onclick="pick(this)">
+          <span class="tile-label">Getting into it</span>
+          <span class="tile-desc">I know a few songs and want to go deeper</span>
+        </button>
+        <button type="button" class="option-tile" data-group="experience" data-value="fan" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🎸</span>
-          <div class="tile-label">Know the classics</div>
-          <div class="tile-desc">Cornell, Veneta, Europe '72 — I want something new</div>
-        </div>
-        <div class="option-tile" data-group="experience" data-value="deadhead" onclick="pick(this)">
+          <span class="tile-label">Know the classics</span>
+          <span class="tile-desc">Cornell, Veneta, Europe '72 — I want something new</span>
+        </button>
+        <button type="button" class="option-tile" data-group="experience" data-value="deadhead" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🌀</span>
-          <div class="tile-label">Deep in the catalog</div>
-          <div class="tile-desc">Dozens of shows heard — skip the obvious</div>
-        </div>
-        <div class="option-tile" data-group="experience" data-value="scholar" onclick="pick(this)">
+          <span class="tile-label">Deep in the catalog</span>
+          <span class="tile-desc">Dozens of shows heard — skip the obvious</span>
+        </button>
+        <button type="button" class="option-tile" data-group="experience" data-value="scholar" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">📜</span>
-          <div class="tile-label">Scholar</div>
-          <div class="tile-desc">Hundreds of shows — find me something I've overlooked</div>
-        </div>
+          <span class="tile-label">Scholar</span>
+          <span class="tile-desc">Hundreds of shows — find me something I've overlooked</span>
+        </button>
       </div>
       <div class="nav-row">
         <button class="btn-back" onclick="goBack()">← Back</button>
+        <span class="pick-hint">Pick one to continue</span>
         <button class="btn-next" id="next-experience" disabled onclick="advance()">Next →</button>
       </div>
     </div>
@@ -749,29 +975,30 @@
       <div class="screen-q">What sounds good right now?</div>
       <div class="screen-sub">Pick the vibe that fits tonight</div>
       <div class="option-grid">
-        <div class="option-tile" data-group="vibe" data-value="easy to get into, accessible, not too long" onclick="pick(this)">
+        <button type="button" class="option-tile" data-group="vibe" data-value="easy to get into, accessible, not too long" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🌅</span>
-          <div class="tile-label">Easy & Accessible</div>
-          <div class="tile-desc">Perfect for someone just getting started</div>
-        </div>
-        <div class="option-tile" data-group="vibe" data-value="mind-expanding, psychedelic, cosmic and exploratory" onclick="pick(this)">
+          <span class="tile-label">Easy & Accessible</span>
+          <span class="tile-desc">Perfect for someone just getting started</span>
+        </button>
+        <button type="button" class="option-tile" data-group="vibe" data-value="mind-expanding, psychedelic, cosmic and exploratory" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🌌</span>
-          <div class="tile-label">Mind-expanding</div>
-          <div class="tile-desc">Trippy, spacy, show me what they're really about</div>
-        </div>
-        <div class="option-tile" data-group="vibe" data-value="upbeat, joyful, danceable and fun" onclick="pick(this)">
+          <span class="tile-label">Mind-expanding</span>
+          <span class="tile-desc">Trippy, spacy, show me what they're really about</span>
+        </button>
+        <button type="button" class="option-tile" data-group="vibe" data-value="upbeat, joyful, danceable and fun" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">☀️</span>
-          <div class="tile-label">Upbeat & Fun</div>
-          <div class="tile-desc">Something I can move to and feel good</div>
-        </div>
-        <div class="option-tile" data-group="vibe" data-value="emotional, moving, slow-building and cathartic" onclick="pick(this)">
+          <span class="tile-label">Upbeat & Fun</span>
+          <span class="tile-desc">Something I can move to and feel good</span>
+        </button>
+        <button type="button" class="option-tile" data-group="vibe" data-value="emotional, moving, slow-building and cathartic" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">💧</span>
-          <div class="tile-label">Emotional & Moving</div>
-          <div class="tile-desc">I want something that hits me in the chest</div>
-        </div>
+          <span class="tile-label">Emotional & Moving</span>
+          <span class="tile-desc">I want something that hits me in the chest</span>
+        </button>
       </div>
       <div class="nav-row">
         <button class="btn-back" onclick="goBack()">← Back</button>
+        <span class="pick-hint">Pick one to continue</span>
         <button class="btn-next" id="next-vibe-simple" disabled onclick="advance()">Next →</button>
       </div>
     </div>
@@ -785,44 +1012,45 @@
       <div class="screen-q">Which era are you drawn to?</div>
       <div class="screen-sub">Or let us pick the best regardless of year</div>
       <div class="option-grid">
-        <div class="option-tile" data-group="era" data-value="" onclick="pick(this)">
+        <button type="button" class="option-tile" data-group="era" data-value="" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🎲</span>
-          <div class="tile-label">Surprise me</div>
-          <div class="tile-desc">Any era — best match wins</div>
-        </div>
-        <div class="option-tile" data-group="era" data-value="Psychedelic Peak (1968–1970)" onclick="pick(this)">
+          <span class="tile-label">Surprise me</span>
+          <span class="tile-desc">Any era — best match wins</span>
+        </button>
+        <button type="button" class="option-tile" data-group="era" data-value="Psychedelic Peak (1968–1970)" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🔮</span>
-          <div class="tile-label">Psychedelic Peak</div>
-          <div class="tile-desc">1968–1970 · Dark Stars, cosmic improv</div>
-        </div>
-        <div class="option-tile" data-group="era" data-value="Americana Pivot (1970–1971)" onclick="pick(this)">
+          <span class="tile-label">Psychedelic Peak</span>
+          <span class="tile-desc">1968–1970 · Dark Stars, cosmic improv</span>
+        </button>
+        <button type="button" class="option-tile" data-group="era" data-value="Americana Pivot (1970–1971)" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🪕</span>
-          <div class="tile-label">Americana Pivot</div>
-          <div class="tile-desc">1970–1971 · Workingman's Dead era, Pigpen</div>
-        </div>
-        <div class="option-tile" data-group="era" data-value="Jazz Fusion Zenith (1972–1974)" onclick="pick(this)">
+          <span class="tile-label">Americana Pivot</span>
+          <span class="tile-desc">1970–1971 · Workingman's Dead era, Pigpen</span>
+        </button>
+        <button type="button" class="option-tile" data-group="era" data-value="Jazz Fusion Zenith (1972–1974)" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🌟</span>
-          <div class="tile-label">Golden Years</div>
-          <div class="tile-desc">1972–1974 · Keith era, Wall of Sound</div>
-        </div>
-        <div class="option-tile" data-group="era" data-value="Hiatus & Return (1975–1977)" onclick="pick(this)">
+          <span class="tile-label">Golden Years</span>
+          <span class="tile-desc">1972–1974 · Keith era, Wall of Sound</span>
+        </button>
+        <button type="button" class="option-tile" data-group="era" data-value="Hiatus & Return (1975–1977)" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">⚡</span>
-          <div class="tile-label">'77 Sweet Spot</div>
-          <div class="tile-desc">1975–1977 · Cornell era, tight and free</div>
-        </div>
-        <div class="option-tile" data-group="era" data-value="Brent Mydland Era (1979–1990)" onclick="pick(this)">
+          <span class="tile-label">'77 Sweet Spot</span>
+          <span class="tile-desc">1975–1977 · Cornell era, tight and free</span>
+        </button>
+        <button type="button" class="option-tile" data-group="era" data-value="Brent Mydland Era (1979–1990)" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🔥</span>
-          <div class="tile-label">Brent Era</div>
-          <div class="tile-desc">1979–1990 · Grit, soul, emotional peaks</div>
-        </div>
-        <div class="option-tile" data-group="era" data-value="Final Chapter (1990–1995)" onclick="pick(this)">
+          <span class="tile-label">Brent Era</span>
+          <span class="tile-desc">1979–1990 · Grit, soul, emotional peaks</span>
+        </button>
+        <button type="button" class="option-tile" data-group="era" data-value="Final Chapter (1990–1995)" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🕯️</span>
-          <div class="tile-label">Final Chapter</div>
-          <div class="tile-desc">1990–1995 · Hornsby years, bittersweet</div>
-        </div>
+          <span class="tile-label">Final Chapter</span>
+          <span class="tile-desc">1990–1995 · Hornsby years, bittersweet</span>
+        </button>
       </div>
       <div class="nav-row">
         <button class="btn-back" onclick="goBack()">← Back</button>
+        <span class="pick-hint">Pick one to continue</span>
         <button class="btn-next" id="next-era" disabled onclick="advance()">Next →</button>
       </div>
     </div>
@@ -836,39 +1064,40 @@
       <div class="screen-q">What's the mood tonight?</div>
       <div class="screen-sub">Pick the one that fits where you are right now</div>
       <div class="option-grid">
-        <div class="option-tile" data-group="vibe" data-value="dark and psychedelic, deep space improv" onclick="pick(this)">
+        <button type="button" class="option-tile" data-group="vibe" data-value="dark and psychedelic, deep space improv" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🌌</span>
-          <div class="tile-label">Dark & Psychedelic</div>
-          <div class="tile-desc">Late night, inner space, Dark Stars</div>
-        </div>
-        <div class="option-tile" data-group="vibe" data-value="upbeat, joyful, danceable and fun" onclick="pick(this)">
+          <span class="tile-label">Dark & Psychedelic</span>
+          <span class="tile-desc">Late night, inner space, Dark Stars</span>
+        </button>
+        <button type="button" class="option-tile" data-group="vibe" data-value="upbeat, joyful, danceable and fun" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">☀️</span>
-          <div class="tile-label">Upbeat & Joyful</div>
-          <div class="tile-desc">Dancing, road trip, summer energy</div>
-        </div>
-        <div class="option-tile" data-group="vibe" data-value="emotional and cathartic, melancholy into hope" onclick="pick(this)">
+          <span class="tile-label">Upbeat & Joyful</span>
+          <span class="tile-desc">Dancing, road trip, summer energy</span>
+        </button>
+        <button type="button" class="option-tile" data-group="vibe" data-value="emotional and cathartic, melancholy into hope" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">💧</span>
-          <div class="tile-label">Emotional & Deep</div>
-          <div class="tile-desc">Wharf Rat, Morning Dew, heavy feelings</div>
-        </div>
-        <div class="option-tile" data-group="vibe" data-value="mellow, spacious, laid back and gentle" onclick="pick(this)">
+          <span class="tile-label">Emotional & Deep</span>
+          <span class="tile-desc">Wharf Rat, Morning Dew, heavy feelings</span>
+        </button>
+        <button type="button" class="option-tile" data-group="vibe" data-value="mellow, spacious, laid back and gentle" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🍃</span>
-          <div class="tile-label">Mellow & Spacious</div>
-          <div class="tile-desc">Sunday morning, rainy afternoon</div>
-        </div>
-        <div class="option-tile" data-group="vibe" data-value="jazzy, complex, exploratory and sophisticated" onclick="pick(this)">
+          <span class="tile-label">Mellow & Spacious</span>
+          <span class="tile-desc">Sunday morning, rainy afternoon</span>
+        </button>
+        <button type="button" class="option-tile" data-group="vibe" data-value="jazzy, complex, exploratory and sophisticated" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">🎷</span>
-          <div class="tile-label">Exploratory & Jazzy</div>
-          <div class="tile-desc">Playin, Eyes, Weather Report Suite</div>
-        </div>
-        <div class="option-tile" data-group="vibe" data-value="raw, high energy, aggressive and driving" onclick="pick(this)">
+          <span class="tile-label">Exploratory & Jazzy</span>
+          <span class="tile-desc">Playin, Eyes, Weather Report Suite</span>
+        </button>
+        <button type="button" class="option-tile" data-group="vibe" data-value="raw, high energy, aggressive and driving" aria-pressed="false" onclick="pick(this)">
           <span class="tile-icon">⚡</span>
-          <div class="tile-label">Raw & Energetic</div>
-          <div class="tile-desc">Face melter, barn burner, full throttle</div>
-        </div>
+          <span class="tile-label">Raw & Energetic</span>
+          <span class="tile-desc">Face melter, barn burner, full throttle</span>
+        </button>
       </div>
       <div class="nav-row">
         <button class="btn-back" onclick="goBack()">← Back</button>
+        <span class="pick-hint">Pick one to continue</span>
         <button class="btn-next" id="next-vibe-deep" disabled onclick="advance()">Next →</button>
       </div>
     </div>
@@ -885,29 +1114,29 @@
       <div class="pref-group">
         <div class="pref-group-label">Any member you want in the spotlight?</div>
         <div class="mini-tile-grid">
-          <div class="mini-tile" data-group="member" data-value="Jerry Garcia lead guitar front and center" onclick="pickMini(this)">Jerry showcase</div>
-          <div class="mini-tile" data-group="member" data-value="Brent Mydland keyboards and vocals prominent" onclick="pickMini(this)">Brent-led</div>
-          <div class="mini-tile" data-group="member" data-value="Keith Godchaux piano prominent" onclick="pickMini(this)">Keith-led</div>
-          <div class="mini-tile" data-group="member" data-value="Phil Lesh bass-heavy and prominent" onclick="pickMini(this)">Phil/bass-forward</div>
-          <div class="mini-tile" data-group="member" data-value="" onclick="pickMini(this)">No preference</div>
+          <button type="button" class="mini-tile" data-group="member" data-value="Jerry Garcia lead guitar front and center" aria-pressed="false" onclick="pickMini(this)">Jerry showcase</button>
+          <button type="button" class="mini-tile" data-group="member" data-value="Brent Mydland keyboards and vocals prominent" aria-pressed="false" onclick="pickMini(this)">Brent-led</button>
+          <button type="button" class="mini-tile" data-group="member" data-value="Keith Godchaux piano prominent" aria-pressed="false" onclick="pickMini(this)">Keith-led</button>
+          <button type="button" class="mini-tile" data-group="member" data-value="Phil Lesh bass-heavy and prominent" aria-pressed="false" onclick="pickMini(this)">Phil/bass-forward</button>
+          <button type="button" class="mini-tile" data-group="member" data-value="" aria-pressed="false" onclick="pickMini(this)">No preference</button>
         </div>
       </div>
 
       <div class="pref-group">
         <div class="pref-group-label">Recording quality?</div>
         <div class="mini-tile-grid">
-          <div class="mini-tile" data-group="recording" data-value="soundboard recording only, high audio quality essential" onclick="pickMini(this)">Soundboard only</div>
-          <div class="mini-tile" data-group="recording" data-value="audience recording is fine if the show is great enough" onclick="pickMini(this)">Audience tape is fine</div>
-          <div class="mini-tile" data-group="recording" data-value="" onclick="pickMini(this)">Don't care</div>
+          <button type="button" class="mini-tile" data-group="recording" data-value="soundboard recording only, high audio quality essential" aria-pressed="false" onclick="pickMini(this)">Soundboard only</button>
+          <button type="button" class="mini-tile" data-group="recording" data-value="audience recording is fine if the show is great enough" aria-pressed="false" onclick="pickMini(this)">Audience tape is fine</button>
+          <button type="button" class="mini-tile" data-group="recording" data-value="" aria-pressed="false" onclick="pickMini(this)">Don't care</button>
         </div>
       </div>
 
       <div class="pref-group">
         <div class="pref-group-label">Famous classic or hidden gem?</div>
         <div class="mini-tile-grid">
-          <div class="mini-tile" data-group="gem" data-value="a well-known classic show with a strong reputation in the Dead community" onclick="pickMini(this)">Give me a classic</div>
-          <div class="mini-tile" data-group="gem" data-value="an underrated or overlooked show that serious Deadheads debate but casual fans have never heard" onclick="pickMini(this)">Surprise me with something obscure</div>
-          <div class="mini-tile" data-group="gem" data-value="" onclick="pickMini(this)">Either works</div>
+          <button type="button" class="mini-tile" data-group="gem" data-value="a well-known classic show with a strong reputation in the Dead community" aria-pressed="false" onclick="pickMini(this)">Give me a classic</button>
+          <button type="button" class="mini-tile" data-group="gem" data-value="an underrated or overlooked show that serious Deadheads debate but casual fans have never heard" aria-pressed="false" onclick="pickMini(this)">Surprise me with something obscure</button>
+          <button type="button" class="mini-tile" data-group="gem" data-value="" aria-pressed="false" onclick="pickMini(this)">Either works</button>
         </div>
       </div>
 
@@ -939,13 +1168,9 @@
   <!-- ════════════════════════════════════════════════════════════ -->
   <div id="loading">
     <div class="spinner"></div>
-    <p id="loading-msg">Searching through 30 years of shows…</p>
+    <p id="loading-msg" role="status">Searching through 30 years of shows…</p>
+    <p class="loading-note">This can take up to a minute — we verify every date against real setlists before showing it.</p>
   </div>
-
-  <!-- ════════════════════════════════════════════════════════════ -->
-  <!-- ERROR                                                       -->
-  <!-- ════════════════════════════════════════════════════════════ -->
-  <div id="error-box"></div>
 
   <!-- ════════════════════════════════════════════════════════════ -->
   <!-- RESULTS                                                     -->
@@ -966,6 +1191,31 @@
     <div id="deeper-cut">
       <strong>If you like these, also explore</strong>
       <p id="deeper-cut-text"></p>
+    </div>
+
+    <div id="results-actions">
+      <button type="button" class="btn-action" id="more-btn" onclick="fetchMore()">Find more like these →</button>
+      <button type="button" class="btn-action" id="share-btn" onclick="copyShareLink(this)">🔗 Copy link to these picks</button>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <!-- SUPPORT + NEWSLETTER                                        -->
+  <!-- ════════════════════════════════════════════════════════════ -->
+  <div class="extras">
+    <div class="extra-box" id="tip-box" style="display:none">
+      <strong>Keep the lights on</strong>
+      <p>Every search costs a little in AI time. If Dead Vibe found you a keeper,
+        <a id="tip-link" href="#" target="_blank" rel="noopener">chip in a few bucks</a> — it all goes to the tape fund.</p>
+    </div>
+    <div class="extra-box" id="newsletter-box">
+      <strong>Today in Dead History — in your inbox</strong>
+      <p>One email each morning with the best shows the Dead played on that date. No spam, just tapes.</p>
+      <form id="newsletter-form">
+        <input type="email" id="newsletter-email" placeholder="you@example.com" required aria-label="Email address" />
+        <button type="submit" class="btn-subscribe">Sign up</button>
+      </form>
+      <span id="newsletter-status" role="status"></span>
     </div>
   </div>
 
@@ -995,6 +1245,10 @@ const API_BASE = (() => {
   } catch (_) { /* localStorage unavailable (e.g. private mode) — fall through */ }
   return window.DEADVIBE_API || "http://localhost:8000";
 })();
+
+// Tip jar: set this to your Ko-fi / Buy Me a Coffee / PayPal.me URL to show a
+// "keep the lights on" box under the results. Leave empty to hide it.
+const TIP_JAR_URL = "";
 
 // ════════════════════════════════════════════════════════════════
 // OWNER'S PICKS
@@ -1035,7 +1289,8 @@ const OWNER_PICKS = [
 // ════════════════════════════════════════════════════════════════
 let path         = null;   // 'mood' | 'history' | 'owner'
 let experience   = null;
-let screenHistory = [];    // stack of visited screen IDs
+let screenHistory = ['screen-home'];  // stack of visited screen IDs
+let lastQuery    = null;   // {prompt, era, numResults, eyebrow} of the last /recommend
 
 const picks = {
   experience: null,
@@ -1047,6 +1302,69 @@ const picks = {
 };
 
 // ════════════════════════════════════════════════════════════════
+// LOCAL STORAGE HELPERS — all guarded, localStorage can be
+// unavailable (private mode) and must never break the app.
+// ════════════════════════════════════════════════════════════════
+const LAST_RESULTS_TTL_MS = 24 * 60 * 60 * 1000;
+
+function storageGet(key) {
+  try { return localStorage.getItem(key); } catch (_) { return null; }
+}
+function storageSet(key, value) {
+  try { localStorage.setItem(key, value); } catch (_) { /* ignore */ }
+}
+
+function loadLastResults() {
+  const raw = storageGet('deadvibe_last');
+  if (!raw) return null;
+  try {
+    const saved = JSON.parse(raw);
+    if (!saved.data || Date.now() - (saved.ts || 0) > LAST_RESULTS_TTL_MS) return null;
+    return saved;
+  } catch (_) { return null; }
+}
+
+function saveLastResults(data, eyebrow, query) {
+  storageSet('deadvibe_last', JSON.stringify({ data, eyebrow, query: query || null, ts: Date.now() }));
+}
+
+function refreshResumeButton() {
+  document.getElementById('resume-row').style.display = loadLastResults() ? 'block' : 'none';
+}
+
+// ════════════════════════════════════════════════════════════════
+// LOADING STATE — rotate through status messages so a long Claude
+// call doesn't look like a frozen page.
+// ════════════════════════════════════════════════════════════════
+const LOADING_MESSAGES = [
+  "Searching through 30 years of shows…",
+  "Digging through the tape vault…",
+  "Weighing first sets against second sets…",
+  "Checking dates against setlist.fm…",
+  "Hunting down the best recordings on archive.org…",
+  "Ranking the contenders…",
+];
+let loadingTimer = null;
+
+function startLoading(firstMsg) {
+  const msgEl = document.getElementById('loading-msg');
+  msgEl.textContent = firstMsg || LOADING_MESSAGES[0];
+  let i = 0;
+  clearInterval(loadingTimer);
+  loadingTimer = setInterval(() => {
+    i = (i + 1) % LOADING_MESSAGES.length;
+    msgEl.textContent = LOADING_MESSAGES[i];
+  }, 6000);
+  document.getElementById('loading').style.display = 'block';
+}
+
+function stopLoading() {
+  clearInterval(loadingTimer);
+  loadingTimer = null;
+  document.getElementById('loading').style.display = 'none';
+}
+
+// ════════════════════════════════════════════════════════════════
 // INIT — set today's date on the home badge
 // ════════════════════════════════════════════════════════════════
 (function init() {
@@ -1055,6 +1373,33 @@ const picks = {
                   "July","August","September","October","November","December"];
   document.getElementById("today-badge").textContent =
     months[today.getMonth()] + " " + today.getDate();
+
+  if (TIP_JAR_URL) {
+    document.getElementById('tip-link').href = TIP_JAR_URL;
+    document.getElementById('tip-box').style.display = 'block';
+  }
+
+  refreshResumeButton();
+
+  // Quick search: skip the quiz entirely and go straight to results.
+  document.getElementById('quick-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const prompt = document.getElementById('quick-input').value.trim();
+    if (!prompt) return;
+    fetchShows(prompt, null, 3, 'Your shows');
+  });
+
+  // Shared links: ?vibe=<prompt>[&era=...][&n=...] re-runs the search (the
+  // backend caches responses, so the sharer's audience usually gets an
+  // instant cache hit).
+  try {
+    const params = new URLSearchParams(location.search);
+    const vibe = params.get('vibe');
+    if (vibe && vibe.trim()) {
+      const n = Math.min(5, Math.max(3, parseInt(params.get('n'), 10) || 3));
+      fetchShows(vibe.trim(), params.get('era') || null, n, 'Shared picks');
+    }
+  } catch (_) { /* malformed URL — just show the home screen */ }
 })();
 
 // ════════════════════════════════════════════════════════════════
@@ -1067,35 +1412,49 @@ function startPath(p) {
   } else if (p === 'owner') {
     fetchOwnerPick();
   } else {
-    // mood path → go to experience screen. Total defaults to the 4-step
-    // simple path; picking a deeper experience expands it to 6 in advance().
-    showScreen('screen-experience', ['screen-home'], 1, 4);
+    showScreen('screen-experience');
+    // Returning visitors: pre-select their remembered experience level so the
+    // first step is a single click (or just "Next").
+    const savedExp = storageGet('deadvibe_exp');
+    if (savedExp && !picks.experience) {
+      const tile = document.querySelector(`.option-tile[data-group="experience"][data-value="${savedExp}"]`);
+      if (tile) pick(tile);
+    }
   }
 }
 
 // ════════════════════════════════════════════════════════════════
 // SCREEN NAVIGATION
+// Steps are derived from one place so "Step X of Y" can't drift
+// from the actual path (previously the totals were hardcoded
+// per-call and disagreed with each other).
 // ════════════════════════════════════════════════════════════════
-function showScreen(targetId, hideIds, step, totalSteps) {
-  // hide current screens
-  (hideIds || []).forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.classList.remove('active');
-  });
-  // hide all screens (catch-all)
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+const STEP_MAPS = {
+  simple: { 'screen-experience': 1, 'screen-vibe-simple': 2, 'screen-freetext': 3 },
+  deep:   { 'screen-experience': 1, 'screen-era': 2, 'screen-vibe-deep': 3, 'screen-deep-prefs': 4, 'screen-freetext': 5 },
+};
 
-  document.getElementById(targetId).classList.add('active');
-  screenHistory.push(targetId);
-  updateProgress(step, totalSteps);
+function pathType() {
+  return (picks.experience === 'newcomer' || picks.experience === 'casual' || !picks.experience)
+    ? 'simple' : 'deep';
 }
 
-function updateProgress(step, total) {
+function updateProgressFor(screenId) {
   const wrap = document.getElementById('progress-wrap');
-  if (!step || !total) { wrap.style.display = 'none'; return; }
+  const map  = STEP_MAPS[pathType()];
+  const step = map[screenId];
+  if (!step) { wrap.style.display = 'none'; return; }
+  const total = Object.keys(map).length;
   wrap.style.display = 'block';
   document.getElementById('progress-fill').style.width = ((step / total) * 100) + '%';
   document.getElementById('progress-label').textContent = `Step ${step} of ${total}`;
+}
+
+function showScreen(targetId) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(targetId).classList.add('active');
+  screenHistory.push(targetId);
+  updateProgressFor(targetId);
 }
 
 // advance() figures out where to go next based on state
@@ -1104,23 +1463,24 @@ function advance() {
 
   if (currentScreen === 'screen-experience') {
     experience = picks.experience;
+    storageSet('deadvibe_exp', experience || '');
     if (experience === 'newcomer' || experience === 'casual') {
-      showScreen('screen-vibe-simple', null, 2, 4);
+      showScreen('screen-vibe-simple');
     } else {
-      showScreen('screen-era', null, 2, 6);
+      showScreen('screen-era');
     }
   }
   else if (currentScreen === 'screen-vibe-simple') {
-    showScreen('screen-freetext', null, 3, 4);
+    showScreen('screen-freetext');
   }
   else if (currentScreen === 'screen-era') {
-    showScreen('screen-vibe-deep', null, 3, 6);
+    showScreen('screen-vibe-deep');
   }
   else if (currentScreen === 'screen-vibe-deep') {
-    showScreen('screen-deep-prefs', null, 4, 6);
+    showScreen('screen-deep-prefs');
   }
   else if (currentScreen === 'screen-deep-prefs') {
-    showScreen('screen-freetext', null, 5, 6);
+    showScreen('screen-freetext');
   }
 
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1132,11 +1492,7 @@ function goBack() {
   const prev = screenHistory[screenHistory.length - 1];
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(prev).classList.add('active');
-
-  // Recalculate progress
-  const total = (experience === 'newcomer' || experience === 'casual') ? 4 : 6;
-  const step = screenHistory.length;
-  updateProgress(step, total);
+  updateProgressFor(prev);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -1146,11 +1502,15 @@ function goBack() {
 function pick(tile) {
   const group = tile.dataset.group;
   // Deselect siblings
-  document.querySelectorAll(`.option-tile[data-group="${group}"]`).forEach(t => t.classList.remove('selected'));
+  document.querySelectorAll(`.option-tile[data-group="${group}"]`).forEach(t => {
+    t.classList.remove('selected');
+    t.setAttribute('aria-pressed', 'false');
+  });
   tile.classList.add('selected');
+  tile.setAttribute('aria-pressed', 'true');
   picks[group] = tile.dataset.value;
 
-  // Enable the next button for this screen
+  // Enable the next button for this screen and clear its "pick one" hint
   const currentScreen = screenHistory[screenHistory.length - 1];
   const nextBtnMap = {
     'screen-experience':  'next-experience',
@@ -1160,12 +1520,22 @@ function pick(tile) {
   };
   const btnId = nextBtnMap[currentScreen];
   if (btnId) document.getElementById(btnId).disabled = false;
+  const hint = document.querySelector(`#${currentScreen} .pick-hint`);
+  if (hint) hint.style.visibility = 'hidden';
+
+  // The experience pick decides whether the path is 3 or 5 steps — refresh
+  // the label so it never shows a stale total.
+  updateProgressFor(currentScreen);
 }
 
 function pickMini(tile) {
   const group = tile.dataset.group;
-  document.querySelectorAll(`.mini-tile[data-group="${group}"]`).forEach(t => t.classList.remove('selected'));
+  document.querySelectorAll(`.mini-tile[data-group="${group}"]`).forEach(t => {
+    t.classList.remove('selected');
+    t.setAttribute('aria-pressed', 'false');
+  });
   tile.classList.add('selected');
+  tile.setAttribute('aria-pressed', 'true');
   picks[group] = tile.dataset.value;
 }
 
@@ -1215,11 +1585,11 @@ async function fetchHistory() {
   const day       = today.getDate();
   const month     = today.getMonth() + 1;
 
-  document.getElementById('loading-msg').textContent = `Finding shows from ${monthName} ${day} in Dead history…`;
   await fetchAndRender({
     url: `${API_BASE}/history/today?month=${month}&day=${day}`,
     eyebrow: `Dead shows on ${monthName} ${day}`,
     timeoutMs: 60000,
+    loadingMsg: `Finding shows from ${monthName} ${day} in Dead history…`,
   });
 }
 
@@ -1227,27 +1597,28 @@ async function fetchHistory() {
 // OWNER'S PICKS
 // ════════════════════════════════════════════════════════════════
 async function fetchOwnerPick() {
-  // Shuffle and pick 3
+  // Shuffle and pick 3, then sort by date: the backend caches on the exact
+  // prompt string, so a canonical order lets repeat trios hit the cache
+  // instead of paying for a fresh Claude call every click.
   const shuffled = [...OWNER_PICKS].sort(() => Math.random() - 0.5);
-  const chosen   = shuffled.slice(0, 3);
+  const chosen   = shuffled.slice(0, 3).sort((a, b) => a.date.localeCompare(b.date));
 
   const showList = chosen.map(s => `${s.date} at ${s.venue}`).join('; ');
   const prompt   = `Please give your full enthusiastic recommendation writeup for exactly these three specific Grateful Dead shows, which have been personally curated as all-time favorites: ${showList}. For each show, write a detailed, specific pitch about what makes it extraordinary — reference actual songs, jams, and moments. Treat each one as a gem worth discovering.`;
 
-  document.getElementById('loading-msg').textContent = 'Pulling up tonight\'s personal picks…';
-  await fetchShows(prompt, null, 3, "Personal Favorites");
+  await fetchShows(prompt, null, 3, "Personal Favorites", 'Pulling up tonight\'s personal picks…', false);
 }
 
 // ════════════════════════════════════════════════════════════════
 // SHARED FETCH + RENDER
 // ════════════════════════════════════════════════════════════════
-async function fetchAndRender({ url, options = {}, eyebrow, timeoutMs = 90000 }) {
+async function fetchAndRender({ url, options = {}, eyebrow, timeoutMs = 90000, loadingMsg, query }) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('progress-wrap').style.display = 'none';
   document.getElementById('results-area').style.display  = 'none';
   document.getElementById('error-box').style.display     = 'none';
   document.getElementById('cards').innerHTML             = '';
-  document.getElementById('loading').style.display       = 'block';
+  startLoading(loadingMsg);
 
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -1258,28 +1629,40 @@ async function fetchAndRender({ url, options = {}, eyebrow, timeoutMs = 90000 })
     const res = await fetch(url, { ...options, signal: controller.signal });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || `Server error ${res.status}`);
+      const body = await res.json().catch(() => ({}));
+      const e = new Error(body.detail || body.error || res.statusText || `Server error ${res.status}`);
+      e.status = res.status;
+      throw e;
     }
 
     const data = await res.json();
-    document.getElementById('loading').style.display = 'none';
+    stopLoading();
+    lastQuery = query || null;
     renderResults(data, eyebrow);
+    saveLastResults(data, eyebrow, query);
 
   } catch (err) {
-    document.getElementById('loading').style.display = 'none';
-    const box = document.getElementById('error-box');
-    box.textContent = err.name === 'AbortError'
-      ? 'That took too long — the server may be busy. Please try again.'
-      : `Something went wrong: ${err.message}`;
-    box.style.display = 'block';
+    stopLoading();
+    let msg;
+    if (err.name === 'AbortError') {
+      msg = 'That took too long — the server may be busy. Please try again in a minute.';
+    } else if (err.status === 429) {
+      msg = "Whoa — you're moving faster than the band. You've hit the request limit; take a breath and try again in a minute.";
+    } else {
+      msg = `Something went wrong: ${err.message}`;
+    }
+    // Reset back to the home screen first — restart() hides the error box, so
+    // the message must be shown after it runs, or the user never sees it.
     restart();
+    const box = document.getElementById('error-box');
+    box.textContent = msg;
+    box.style.display = 'block';
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
-async function fetchShows(prompt, era, numResults, eyebrow) {
+async function fetchShows(prompt, era, numResults, eyebrow, loadingMsg, allowMore = true) {
   await fetchAndRender({
     url: `${API_BASE}/recommend`,
     options: {
@@ -1288,7 +1671,57 @@ async function fetchShows(prompt, era, numResults, eyebrow) {
       body: JSON.stringify({ prompt, era: era || null, num_results: numResults }),
     },
     eyebrow,
+    loadingMsg,
+    query: { prompt, era: era || null, numResults, eyebrow, allowMore },
   });
+}
+
+// ════════════════════════════════════════════════════════════════
+// RESULTS ACTIONS — resume, more-like-these, share link
+// ════════════════════════════════════════════════════════════════
+function updateResultsActions() {
+  const actions = document.getElementById('results-actions');
+  if (!lastQuery) { actions.style.display = 'none'; return; }
+  actions.style.display = 'flex';
+  // Hide "more" at the 5-show maximum, or when the query pins specific shows
+  // (Personal Favorites always describes exactly three curated picks).
+  const canMore = lastQuery.allowMore !== false && lastQuery.numResults < 5;
+  document.getElementById('more-btn').style.display = canMore ? '' : 'none';
+  const shareBtn = document.getElementById('share-btn');
+  shareBtn.textContent = '🔗 Copy link to these picks';
+  shareBtn.disabled = false;
+}
+
+function resumeLast() {
+  const saved = loadLastResults();
+  if (!saved) { refreshResumeButton(); return; }
+  lastQuery = saved.query || null;
+  renderResults(saved.data, saved.eyebrow);
+}
+
+async function fetchMore() {
+  if (!lastQuery) return;
+  await fetchShows(lastQuery.prompt, lastQuery.era, 5, lastQuery.eyebrow);
+}
+
+function buildShareUrl() {
+  const params = new URLSearchParams();
+  params.set('vibe', lastQuery.prompt);
+  if (lastQuery.era) params.set('era', lastQuery.era);
+  if (lastQuery.numResults && lastQuery.numResults !== 3) params.set('n', lastQuery.numResults);
+  return `${location.origin}${location.pathname}?${params.toString()}`;
+}
+
+async function copyShareLink(btn) {
+  if (!lastQuery) return;
+  const url = buildShareUrl();
+  try {
+    await navigator.clipboard.writeText(url);
+    btn.textContent = '✓ Link copied';
+  } catch (_) {
+    // Clipboard API unavailable (e.g. non-HTTPS) — let the user copy manually.
+    window.prompt('Copy this link:', url);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1326,7 +1759,7 @@ function renderResults(data, eyebrow) {
           <div class="show-date">${esc(fmtDate(rec.date))}</div>
           <div class="show-venue">${esc(rec.venue || '')}</div>
         </div>
-        <div class="match-wrap">
+        <div class="match-wrap" title="The AI's estimate of how closely this show fits what you asked for — a guide, not gospel">
           <div class="match-pct">${pct}%</div>
           <div class="match-lbl">Vibe Match</div>
           <div class="match-bar"><div class="match-fill" style="width:${pct}%"></div></div>
@@ -1346,7 +1779,16 @@ function renderResults(data, eyebrow) {
           ${esc(rec.recording_quality || '')}
         </div>
         <a class="listen-btn" href="${archiveLink}" target="_blank" rel="noopener">▶ Listen on Archive.org</a>
+      </div>
+      <div class="feedback-row">
+        <span class="feedback-q">Was this a good match?</span>
+        <button type="button" class="fb-btn" data-match="yes" aria-label="Good match">👍</button>
+        <button type="button" class="fb-btn" data-match="no" aria-label="Not a match">👎</button>
       </div>`;
+
+    card.querySelectorAll('.fb-btn').forEach(btn => {
+      btn.addEventListener('click', () => sendFeedback(card, rec, btn.dataset.match === 'yes'));
+    });
 
     container.appendChild(card);
   });
@@ -1369,22 +1811,78 @@ function renderResults(data, eyebrow) {
     document.getElementById('deeper-cut').style.display = 'none';
   }
 
+  updateResultsActions();
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('progress-wrap').style.display = 'none';
   document.getElementById('results-area').style.display = 'block';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
+// ════════════════════════════════════════════════════════════════
+// FEEDBACK — 👍/👎 votes persisted via the backend /feedback endpoint
+// ════════════════════════════════════════════════════════════════
+async function sendFeedback(card, rec, isMatch) {
+  const row = card.querySelector('.feedback-row');
+  row.querySelectorAll('.fb-btn').forEach(b => b.disabled = true);
+  try {
+    const res = await fetch(`${API_BASE}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: rec.date || null, venue: rec.venue || null, is_match: isMatch }),
+    });
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    row.innerHTML = `<span class="feedback-thanks">${isMatch ? 'Glad it landed 🙏' : "Noted — we'll dig deeper next time"}</span>`;
+  } catch (_) {
+    row.innerHTML = `<span class="feedback-thanks">Couldn't record that vote — thanks anyway</span>`;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// NEWSLETTER SIGNUP
+// ════════════════════════════════════════════════════════════════
+document.getElementById('newsletter-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const status = document.getElementById('newsletter-status');
+  const btn    = e.target.querySelector('.btn-subscribe');
+  const email  = document.getElementById('newsletter-email').value.trim();
+  btn.disabled = true;
+  status.textContent = 'Signing you up…';
+  try {
+    const res = await fetch(`${API_BASE}/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || body.error || 'Could not sign you up — please try again');
+    }
+    e.target.style.display = 'none';
+    status.textContent = "You're on the list — see you tomorrow morning. ⚡";
+  } catch (err) {
+    status.textContent = err.message;
+    btn.disabled = false;
+  }
+});
 
 // ════════════════════════════════════════════════════════════════
 // RESTART
 // ════════════════════════════════════════════════════════════════
 function restart() {
   // Reset state
-  path = null; experience = null; screenHistory = [];
+  path = null; experience = null; screenHistory = ['screen-home'];
   Object.keys(picks).forEach(k => picks[k] = null);
   document.getElementById('free-text').value = '';
+  document.getElementById('quick-input').value = '';
   document.getElementById('cards').innerHTML = '';
+  document.querySelectorAll('.pick-hint').forEach(h => h.style.visibility = '');
+  refreshResumeButton();
 
   // Reset tile selections
-  document.querySelectorAll('.option-tile, .mini-tile').forEach(t => t.classList.remove('selected'));
+  document.querySelectorAll('.option-tile, .mini-tile').forEach(t => {
+    t.classList.remove('selected');
+    t.setAttribute('aria-pressed', 'false');
+  });
   document.querySelectorAll('.btn-next[id]').forEach(b => b.disabled = true);
 
   // Show home screen
@@ -1393,7 +1891,7 @@ function restart() {
   document.getElementById('progress-wrap').style.display = 'none';
   document.getElementById('results-area').style.display  = 'none';
   document.getElementById('error-box').style.display     = 'none';
-  document.getElementById('loading').style.display       = 'none';
+  stopLoading();
 
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
