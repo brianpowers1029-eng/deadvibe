@@ -17,8 +17,9 @@ A minimal app that turns a "vibe" description into Grateful Dead live-show recom
 | Frontend | `python3 -m http.server 8080` | 8080 | Static file server; open `http://localhost:8080/index.html`. |
 
 ### Required environment
-- `ANTHROPIC_API_KEY` is **required at import time** — `app.py` reads it via `os.environ["ANTHROPIC_API_KEY"]` at line 37, so the process crashes with `KeyError` before serving anything if it is unset. It must be a valid key for `/recommend` (core functionality) to work; the code targets the `claude-opus-4-6` model.
-- `SETLIST_FM_API_KEY` (optional) enriches recommendations with real setlists; without it, setlist data is simply omitted (frontend handles gracefully).
+- `ANTHROPIC_API_KEY` is **required at import time** — `app.py` reads it via `os.environ["ANTHROPIC_API_KEY"]` at import, so the process crashes with `KeyError` before serving anything if it is unset. It must be a valid key for `/recommend` (core functionality) to work.
+- `/recommend` uses a fast/accurate hybrid: `RECOMMEND_MODEL` (default `claude-haiku-4-5`, ~8–12s) first; if setlist.fm drops too many dates it retries once with `RECOMMEND_FALLBACK_MODEL` (default `claude-sonnet-4-6`, ~25–35s). `/history/today` uses `HISTORY_MODEL` (default `claude-haiku-4-5`).
+- `SETLIST_FM_API_KEY` (optional) verifies dates and attaches real setlists; without it, setlist data is simply omitted (frontend handles gracefully). Lookups are cached in SQLite for 30 days. Archive.org IDs are not validated on the hot path — the frontend builds a date-based search link instead.
 - `ALLOWED_ORIGINS` (optional) restricts CORS; defaults to `*`.
 
 ### Gotchas
