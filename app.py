@@ -19,6 +19,7 @@ import time
 import sqlite3
 import logging
 import threading
+import random
 from contextlib import asynccontextmanager
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
@@ -34,6 +35,8 @@ from dotenv import load_dotenv
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+
+from shows_catalog import SHOW_CATALOG, SHOWS_BY_DATE, CATALOG_DATES
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -549,12 +552,10 @@ def _prewarm_today_history() -> None:
         log.warning(f"History prewarm failed: {e}")
 
 # ── System Prompt ─────────────────────────────────────────────────────────────
-# Kept lean on purpose: shorter prompts + shorter outputs = much faster model
-# latency. Era knowledge is already in the model's training data; we only need
-# to steer format, honesty, and tone.
-SYSTEM_PROMPT = """You are the Dead Vibe Matcher. Match a user's vibe to real Grateful Dead live shows (1965–1995). Not studio albums — specific dates, venues, setlists.
-
-Eras (use as tags): Primal Dead (1965–1968); Psychedelic Peak (1968–1970); Americana Pivot (1970–1971); Jazz Fusion Zenith (1972–1974); Hiatus & Return (1975–1977); Shakedown Street Era (1978–1979); Brent Mydland Era (1979–1990); Final Chapter (1990–1995).
+# Catalog-grounded: the model may ONLY pick dates from the candidate list we
+# pass in. That eliminates invented "deep cut" dates (the cause of the ~50s
+# Sonnet fallback) and keeps every /recommend on a single fast Haiku call.
+SYSTEM_PROMPT = """You are the Dead Vibe Matcher. The user describes a vibe; you pick the best matching Grateful Dead shows FROM THE CANDIDATE LIST provided in the user message.
 
 Return ONLY valid JSON — no markdown fences, no commentary:
 {
@@ -562,9 +563,7 @@ Return ONLY valid JSON — no markdown fences, no commentary:
   "recommendations": [
     {
       "rank": 1,
-      "date": "1977-05-08",
-      "venue": "Barton Hall, Cornell University, Ithaca, NY",
-      "era": "Hiatus & Return (1975–1977)",
+      "date": "YYYY-MM-DD",
       "vibe_match": 92,
       "pitch": "1-2 sentences. Lead with a specific song, jam, or setlist fact. No vague praise.",
       "key_moments": ["Two specific song moments — name the song and what happened"],
@@ -577,21 +576,114 @@ Return ONLY valid JSON — no markdown fences, no commentary:
 }
 
 Rules:
-1. Real shows only — real dates and venues. Never invent a date. Prefer well-documented shows over obscure guesses.
-2. Return exactly the number of shows requested, ranked by vibe match.
-3. Dig past Cornell '77 / Veneta '72 / Europe '72 when the vibe allows.
-4. Respect requested eras. Flag weak spots honestly in caveats.
+1. EVERY recommendation date MUST appear in the candidate list. Never invent a date.
+2. Copy dates exactly as written (YYYY-MM-DD). Do not include venue/era — those are filled in server-side.
+3. Return exactly the number of shows requested, ranked by vibe match.
+4. When the user wants deep/obscure cuts, prefer candidates tagged "deep" and avoid gateway classics (Cornell, Veneta).
 5. Banned words: transcendent, remarkable, devastating, stunning, beautiful, crucial, noteworthy.
 6. JSON only.
 """
 
-# Fast path: Haiku (~8–12s). If too many dates fail setlist.fm verification we
-# fall back once to Sonnet (~25–35s) rather than returning a thin list.
 RECOMMEND_MODEL = os.environ.get("RECOMMEND_MODEL", "claude-haiku-4-5")
-RECOMMEND_FALLBACK_MODEL = os.environ.get("RECOMMEND_FALLBACK_MODEL", "claude-sonnet-4-6")
-# Keep output short so generation finishes quickly; scale with result count.
+# How many catalog candidates to show the model (enough variety, small prompt).
+CANDIDATE_POOL_SIZE = 28
+
+
 def _recommend_max_tokens(num_results: int) -> int:
-    return min(2200, 700 + max(1, num_results) * 350)
+    return min(1800, 500 + max(1, num_results) * 280)
+
+
+def _wants_deep_catalog(prompt: str) -> bool:
+    p = prompt.lower()
+    needles = (
+        "deep in the catalog", "skip anything overplayed", "underrated",
+        "overlooked", "dozens of shows", "hundreds of shows",
+        "seasoned deadhead", "serious collectors", "genuinely special",
+        "dig into the catalog", "something obscure", "hidden gem",
+    )
+    return any(n in p for n in needles)
+
+
+def _wants_gateway(prompt: str) -> bool:
+    p = prompt.lower()
+    return any(n in p for n in (
+        "never heard", "brand new", "gateway", "barely heard", "casual listener",
+    ))
+
+
+def _select_candidates(prompt: str, era: Optional[str], pool_size: int = CANDIDATE_POOL_SIZE) -> list[dict]:
+    """Pick a diverse slice of the catalog for the model to choose from."""
+    shows = list(SHOW_CATALOG)
+    if era:
+        era_l = era.lower()
+        filtered = [s for s in shows if era_l in s["era"].lower() or era_l in s["tags"]]
+        # Also match year ranges like "1977" against the date.
+        year_hits = [s for s in shows if era_l[:4].isdigit() and s["date"].startswith(era_l[:4])]
+        shows = filtered or year_hits or shows
+
+    deep = _wants_deep_catalog(prompt)
+    gateway = _wants_gateway(prompt)
+
+    if deep:
+        preferred = [s for s in shows if s["depth"] == "deep"]
+        secondary = [s for s in shows if s["depth"] == "classic"]
+        # Almost no gateway shows for deep-catalog requests.
+        shows = preferred + secondary
+    elif gateway:
+        preferred = [s for s in shows if s["depth"] in ("gateway", "classic")]
+        secondary = [s for s in shows if s["depth"] == "deep"]
+        shows = preferred + secondary[: max(0, pool_size // 3)]
+
+    if len(shows) <= pool_size:
+        random.shuffle(shows)
+        return shows
+
+    # Sample with a bias toward the front of the (already depth-sorted) list.
+    head = shows[: max(pool_size, len(shows) // 2)]
+    random.shuffle(head)
+    return head[:pool_size]
+
+
+def _format_candidates(candidates: list[dict]) -> str:
+    lines = []
+    for s in candidates:
+        lines.append(f"- {s['date']} | {s['venue']} | {s['era']} | depth={s['depth']}")
+    return "\n".join(lines)
+
+
+def _ground_recommendations(data: dict, want: int) -> dict:
+    """Keep only catalog dates and fill venue/era from the catalog."""
+    kept = []
+    seen = set()
+    for rec in data.get("recommendations", []):
+        date = (rec.get("date") or "").strip()
+        if date not in CATALOG_DATES or date in seen:
+            continue
+        seen.add(date)
+        catalog = SHOWS_BY_DATE[date]
+        rec["date"] = date
+        rec["venue"] = catalog["venue"]
+        rec["era"] = catalog["era"]
+        rec["archive_org_id"] = None
+        # Catalog membership is proof the date is real; setlist attach is best-effort.
+        rec["date_verified"] = True
+        kept.append(rec)
+        if len(kept) >= want:
+            break
+
+    # Fan out setlist lookups (SQLite-cached after the first hit).
+    if kept:
+        def _attach(rec: dict) -> None:
+            _, setlist = lookup_setlist(rec["date"])
+            rec["setlist"] = setlist
+
+        with ThreadPoolExecutor(max_workers=min(8, len(kept))) as pool:
+            list(pool.map(_attach, kept))
+
+    for i, rec in enumerate(kept, start=1):
+        rec["rank"] = i
+    data["recommendations"] = kept
+    return data
 
 # ── Request Model ─────────────────────────────────────────────────────────────
 class VibeRequest(BaseModel):
@@ -641,26 +733,10 @@ def recommend(request: Request, payload: VibeRequest):
     if len(payload.prompt) > MAX_PROMPT_CHARS:
         raise HTTPException(413, f"Prompt too long (max {MAX_PROMPT_CHARS} characters)")
 
-    # Ask for extras as a buffer — setlist.fm drops hallucinated dates, and with
-    # a fast model we'd rather trim than under-deliver.
     want = max(3, min(5, payload.num_results))
-    ask_for = 5  # always fetch a full slate; trim to `want` after verification
 
-    # Build the user message with any filters the user chose
-    parts = [f'Vibe request: "{payload.prompt}"']
-    if payload.era:
-        parts.append(f"Preferred era: {payload.era}")
-    if payload.mood:
-        parts.append(f"Mood refinement: {payload.mood}")
-    parts.append(f"Number of recommendations requested: {ask_for}")
-    parts.append(
-        "Every date MUST be a real Grateful Dead concert. "
-        "If you are unsure a date is real, pick a different well-documented show instead of guessing."
-    )
-    user_message = "\n".join(parts)
-
-    # Cache key uses the user's requested count (not the buffer) so "find more"
-    # (n=5) doesn't collide with a prior n=3 response.
+    # Cache key — stable for identical vibe/era/count (candidates are resampled
+    # each miss, so the model still sees variety across cache TTLs).
     cache_key = (
         f'Vibe request: "{payload.prompt}"\n'
         + (f"Preferred era: {payload.era}\n" if payload.era else "")
@@ -672,58 +748,90 @@ def recommend(request: Request, payload: VibeRequest):
         log.info(f"Cache hit: {payload.prompt[:80]}...")
         return cached
 
-    log.info(f"Vibe request ({RECOMMEND_MODEL}): {payload.prompt[:80]}...")
-    t0 = time.time()
-    max_tokens = _recommend_max_tokens(ask_for)
+    candidates = _select_candidates(payload.prompt, payload.era)
+    if len(candidates) < want:
+        raise HTTPException(500, "Show catalog too small for this filter — try another era")
 
+    parts = [f'Vibe request: "{payload.prompt}"']
+    if payload.era:
+        parts.append(f"Preferred era: {payload.era}")
+    if payload.mood:
+        parts.append(f"Mood refinement: {payload.mood}")
+    if _wants_deep_catalog(payload.prompt):
+        parts.append(
+            "The listener wants deep catalog / underrated shows. "
+            "Prefer depth=deep candidates; avoid gateway classics."
+        )
+    parts.append(f"Number of recommendations requested: {want}")
+    parts.append("Pick ONLY from this candidate list (date | venue | era | depth):")
+    parts.append(_format_candidates(candidates))
+    user_message = "\n".join(parts)
+
+    log.info(
+        f"Vibe request ({RECOMMEND_MODEL}, {len(candidates)} candidates"
+        f"{', deep' if _wants_deep_catalog(payload.prompt) else ''}): "
+        f"{payload.prompt[:80]}..."
+    )
+    t0 = time.time()
     data = _call_claude(
         SYSTEM_PROMPT,
         user_message,
         model=RECOMMEND_MODEL,
-        max_tokens=max_tokens,
+        max_tokens=_recommend_max_tokens(want),
     )
     t_claude = time.time() - t0
 
     t1 = time.time()
-    data = _verify_and_filter(data)
+    # Constrain to catalog dates (drops any invented ones) and attach setlists
+    # in parallel for the kept shows only.
+    data = _ground_recommendations(data, want)
+
+    # If the model somehow returned fewer than wanted, top up from candidates
+    # that weren't already chosen — still no second LLM call.
+    have = {r["date"] for r in data.get("recommendations", [])}
+    if len(have) < want:
+        fillers = []
+        for s in candidates:
+            if s["date"] in have:
+                continue
+            fillers.append(s)
+            have.add(s["date"])
+            if len(have) >= want:
+                break
+
+        def _fill(s: dict) -> dict:
+            _, setlist = lookup_setlist(s["date"])
+            return {
+                "rank": 0,
+                "date": s["date"],
+                "venue": s["venue"],
+                "era": s["era"],
+                "vibe_match": 70,
+                "pitch": (
+                    f"A strong {s['era'].split('(')[0].strip()} show from the "
+                    f"catalog that fits this lane."
+                ),
+                "key_moments": ["Check the setlist below for the peaks"],
+                "recording_type": "Soundboard",
+                "recording_quality": "See archive.org for available transfers",
+                "caveats": None,
+                "setlist": setlist,
+                "date_verified": True,
+                "archive_org_id": None,
+            }
+
+        with ThreadPoolExecutor(max_workers=min(8, len(fillers))) as pool:
+            data["recommendations"].extend(pool.map(_fill, fillers))
+        for i, rec in enumerate(data["recommendations"][:want], start=1):
+            rec["rank"] = i
+        data["recommendations"] = data["recommendations"][:want]
+
     t_enrich = time.time() - t1
 
-    recs = data.get("recommendations", [])
-    used_model = RECOMMEND_MODEL
-
-    # Haiku is fast but sometimes invents dates. One Sonnet retry keeps the
-    # common case snappy while still filling out a full list when needed.
-    if (
-        len(recs) < want
-        and RECOMMEND_FALLBACK_MODEL
-        and RECOMMEND_FALLBACK_MODEL != RECOMMEND_MODEL
-    ):
-        log.info(
-            f"Fast model kept {len(recs)}/{want} — falling back to {RECOMMEND_FALLBACK_MODEL}"
-        )
-        t2 = time.time()
-        data = _call_claude(
-            SYSTEM_PROMPT,
-            user_message,
-            model=RECOMMEND_FALLBACK_MODEL,
-            max_tokens=max_tokens,
-        )
-        t_claude += time.time() - t2
-        t3 = time.time()
-        data = _verify_and_filter(data)
-        t_enrich += time.time() - t3
-        recs = data.get("recommendations", [])
-        used_model = RECOMMEND_FALLBACK_MODEL
-
-    # Trim buffer down to what the user asked for.
-    recs = recs[:want]
-    for i, rec in enumerate(recs, start=1):
-        rec["rank"] = i
-    data["recommendations"] = recs
-
     log.info(
-        f"Recommend timing: model={used_model} claude={t_claude:.1f}s "
-        f"enrich={t_enrich:.1f}s total={t_claude + t_enrich:.1f}s results={len(recs)}"
+        f"Recommend timing: model={RECOMMEND_MODEL} claude={t_claude:.1f}s "
+        f"enrich={t_enrich:.1f}s total={t_claude + t_enrich:.1f}s "
+        f"results={len(data.get('recommendations', []))}"
     )
 
     _cache_set(cache_key, data)
