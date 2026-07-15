@@ -36,11 +36,50 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from shows_catalog import SHOW_CATALOG, SHOWS_BY_DATE, CATALOG_DATES
-
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+
+# ── Show catalog (full Grateful Dead date list) ───────────────────────────────
+# Built by scripts/build_shows_db.py from Deadgraph + archive.org. Falls back to
+# the smaller curated shows_catalog.py if the DB isn't present yet.
+SHOWS_DB_PATH = os.environ.get("SHOWS_DB_PATH", "shows.db")
+
+
+def _load_show_catalog() -> tuple[list[dict], dict[str, dict], set[str]]:
+    if os.path.exists(SHOWS_DB_PATH):
+        with sqlite3.connect(SHOWS_DB_PATH) as conn:
+            rows = conn.execute(
+                """
+                SELECT date, venue, city, era, depth, tags, archive_org_id
+                FROM shows ORDER BY date
+                """
+            ).fetchall()
+        catalog = [
+            {
+                "date": date,
+                "venue": venue,
+                "city": city or "",
+                "era": era,
+                "depth": depth or "deep",
+                "tags": tags or "",
+                "archive_org_id": archive_org_id,
+            }
+            for date, venue, city, era, depth, tags, archive_org_id in rows
+        ]
+        log.info(f"Loaded {len(catalog)} shows from {SHOWS_DB_PATH}")
+    else:
+        from shows_catalog import SHOW_CATALOG as _FALLBACK
+        catalog = [dict(s) for s in _FALLBACK]
+        log.warning(
+            f"{SHOWS_DB_PATH} not found — using curated shows_catalog.py "
+            f"({len(catalog)} shows). Run: python3 scripts/build_shows_db.py"
+        )
+    by_date = {s["date"]: s for s in catalog}
+    return catalog, by_date, set(by_date)
+
+
+SHOW_CATALOG, SHOWS_BY_DATE, CATALOG_DATES = _load_show_catalog()
 
 # ── Anthropic Client ──────────────────────────────────────────────────────────
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
@@ -586,7 +625,7 @@ Rules:
 
 RECOMMEND_MODEL = os.environ.get("RECOMMEND_MODEL", "claude-haiku-4-5")
 # How many catalog candidates to show the model (enough variety, small prompt).
-CANDIDATE_POOL_SIZE = 28
+CANDIDATE_POOL_SIZE = 36
 
 
 def _recommend_max_tokens(num_results: int) -> int:
@@ -612,36 +651,41 @@ def _wants_gateway(prompt: str) -> bool:
 
 
 def _select_candidates(prompt: str, era: Optional[str], pool_size: int = CANDIDATE_POOL_SIZE) -> list[dict]:
-    """Pick a diverse slice of the catalog for the model to choose from."""
+    """Pick a diverse slice of the full show DB for the model to choose from."""
     shows = list(SHOW_CATALOG)
     if era:
         era_l = era.lower()
-        filtered = [s for s in shows if era_l in s["era"].lower() or era_l in s["tags"]]
+        filtered = [
+            s for s in shows
+            if era_l in (s.get("era") or "").lower() or era_l in (s.get("tags") or "")
+        ]
         # Also match year ranges like "1977" against the date.
-        year_hits = [s for s in shows if era_l[:4].isdigit() and s["date"].startswith(era_l[:4])]
+        year_hits = [
+            s for s in shows
+            if era_l[:4].isdigit() and s["date"].startswith(era_l[:4])
+        ]
         shows = filtered or year_hits or shows
 
     deep = _wants_deep_catalog(prompt)
     gateway = _wants_gateway(prompt)
 
     if deep:
-        preferred = [s for s in shows if s["depth"] == "deep"]
-        secondary = [s for s in shows if s["depth"] == "classic"]
+        preferred = [s for s in shows if s.get("depth") == "deep"]
+        secondary = [s for s in shows if s.get("depth") == "classic"]
         # Almost no gateway shows for deep-catalog requests.
         shows = preferred + secondary
     elif gateway:
-        preferred = [s for s in shows if s["depth"] in ("gateway", "classic")]
-        secondary = [s for s in shows if s["depth"] == "deep"]
+        preferred = [s for s in shows if s.get("depth") in ("gateway", "classic")]
+        secondary = [s for s in shows if s.get("depth") == "deep"]
         shows = preferred + secondary[: max(0, pool_size // 3)]
 
     if len(shows) <= pool_size:
         random.shuffle(shows)
         return shows
 
-    # Sample with a bias toward the front of the (already depth-sorted) list.
-    head = shows[: max(pool_size, len(shows) // 2)]
-    random.shuffle(head)
-    return head[:pool_size]
+    # Uniform sample across the (possibly depth-filtered) full era — with 2k+
+    # shows we don't want to only ever see the first half of the list.
+    return random.sample(shows, pool_size)
 
 
 def _format_candidates(candidates: list[dict]) -> str:
@@ -664,7 +708,8 @@ def _ground_recommendations(data: dict, want: int) -> dict:
         rec["date"] = date
         rec["venue"] = catalog["venue"]
         rec["era"] = catalog["era"]
-        rec["archive_org_id"] = None
+        # Prefer a real archive.org id from the DB when we have one.
+        rec["archive_org_id"] = catalog.get("archive_org_id") or None
         # Catalog membership is proof the date is real; setlist attach is best-effort.
         rec["date_verified"] = True
         kept.append(rec)
@@ -706,7 +751,12 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "1.0.0"}
+    return {
+        "status": "ok",
+        "version": "1.0.0",
+        "shows_catalog_size": len(SHOW_CATALOG),
+        "shows_db": SHOWS_DB_PATH if os.path.exists(SHOWS_DB_PATH) else None,
+    }
 
 
 @app.get("/history/today")
@@ -817,7 +867,7 @@ def recommend(request: Request, payload: VibeRequest):
                 "caveats": None,
                 "setlist": setlist,
                 "date_verified": True,
-                "archive_org_id": None,
+                "archive_org_id": s.get("archive_org_id"),
             }
 
         with ThreadPoolExecutor(max_workers=min(8, len(fillers))) as pool:

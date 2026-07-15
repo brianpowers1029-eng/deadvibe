@@ -5,5 +5,12 @@ __pycache__/
 # Local runtime data
 feedback.db
 
+# Downloaded source caches for scripts/build_shows_db.py
+data/cache/
+
 # Environment
 .env
+
+# shows.db IS committed — it's the runtime catalog of ~2k GD dates.
+# Rebuild with: python3 scripts/build_shows_db.py
+data/cache/
