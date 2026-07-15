@@ -421,6 +421,16 @@
       opacity: 0.8;
     }
 
+    .loading-elapsed {
+      margin-top: 14px !important;
+      font-size: 1.35rem !important;
+      font-style: normal !important;
+      font-weight: bold;
+      color: var(--amber-glow);
+      letter-spacing: 0.04em;
+      font-variant-numeric: tabular-nums;
+    }
+
     /* ── Error ───────────────────────────────────────────────── */
     #error-box {
       display: none;
@@ -1169,7 +1179,8 @@
   <div id="loading">
     <div class="spinner"></div>
     <p id="loading-msg" role="status">Searching through 30 years of shows…</p>
-    <p class="loading-note">This can take up to a minute — we verify every date against real setlists before showing it.</p>
+    <p class="loading-elapsed" id="loading-elapsed" aria-live="polite">0s</p>
+    <p class="loading-note">Usually about 10–15 seconds. We verify every date against real setlists before showing it.</p>
   </div>
 
   <!-- ════════════════════════════════════════════════════════════ -->
@@ -1341,26 +1352,39 @@ const LOADING_MESSAGES = [
   "Digging through the tape vault…",
   "Weighing first sets against second sets…",
   "Checking dates against setlist.fm…",
-  "Hunting down the best recordings on archive.org…",
   "Ranking the contenders…",
 ];
 let loadingTimer = null;
+let loadingElapsedTimer = null;
+let loadingStartedAt = 0;
 
 function startLoading(firstMsg) {
   const msgEl = document.getElementById('loading-msg');
+  const elapsedEl = document.getElementById('loading-elapsed');
   msgEl.textContent = firstMsg || LOADING_MESSAGES[0];
+  loadingStartedAt = Date.now();
+  elapsedEl.textContent = '0s';
+
   let i = 0;
   clearInterval(loadingTimer);
+  clearInterval(loadingElapsedTimer);
   loadingTimer = setInterval(() => {
     i = (i + 1) % LOADING_MESSAGES.length;
     msgEl.textContent = LOADING_MESSAGES[i];
-  }, 6000);
+  }, 4000);
+  loadingElapsedTimer = setInterval(() => {
+    const secs = Math.floor((Date.now() - loadingStartedAt) / 1000);
+    elapsedEl.textContent = secs + 's';
+  }, 250);
+
   document.getElementById('loading').style.display = 'block';
 }
 
 function stopLoading() {
   clearInterval(loadingTimer);
+  clearInterval(loadingElapsedTimer);
   loadingTimer = null;
+  loadingElapsedTimer = null;
   document.getElementById('loading').style.display = 'none';
 }
 
@@ -1612,7 +1636,7 @@ async function fetchOwnerPick() {
 // ════════════════════════════════════════════════════════════════
 // SHARED FETCH + RENDER
 // ════════════════════════════════════════════════════════════════
-async function fetchAndRender({ url, options = {}, eyebrow, timeoutMs = 90000, loadingMsg, query }) {
+async function fetchAndRender({ url, options = {}, eyebrow, timeoutMs = 60000, loadingMsg, query }) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('progress-wrap').style.display = 'none';
   document.getElementById('results-area').style.display  = 'none';

@@ -53,6 +53,51 @@ DATE_VERIFIED = "verified"          # setlist.fm has a Grateful Dead show on thi
 DATE_NOT_FOUND = "not_found"        # setlist.fm confirms no show on this date (likely hallucinated)
 DATE_UNVERIFIABLE = "unverifiable"  # could not check (no key / rate limited / network error)
 
+# Setlists are stable historical data — cache aggressively to skip repeat
+# network round-trips on popular dates (and across overlapping recommendations).
+SETLIST_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60  # 30 days
+
+
+def _setlist_cache_get(date_str: str) -> tuple[str, dict | None] | None:
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT status, payload, created_at FROM setlist_cache WHERE show_date = ?",
+                (date_str,),
+            ).fetchone()
+    except sqlite3.OperationalError:
+        # Table not created yet (very early import / first request race).
+        return None
+    if not row:
+        return None
+    status, payload_json, created_at = row
+    created_ts = datetime.fromisoformat(created_at).timestamp()
+    if time.time() - created_ts > SETLIST_CACHE_TTL_SECONDS:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("DELETE FROM setlist_cache WHERE show_date = ?", (date_str,))
+        return None
+    setlist = json.loads(payload_json) if payload_json else None
+    return status, setlist
+
+
+def _setlist_cache_set(date_str: str, status: str, setlist: dict | None) -> None:
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                """
+                INSERT INTO setlist_cache (show_date, status, payload)
+                VALUES (?, ?, ?)
+                ON CONFLICT(show_date) DO UPDATE SET
+                    status = excluded.status,
+                    payload = excluded.payload,
+                    created_at = datetime('now')
+                """,
+                (date_str, status, json.dumps(setlist) if setlist else None),
+            )
+    except sqlite3.OperationalError as e:
+        log.warning(f"Setlist cache write skipped: {e}")
+
+
 def lookup_setlist(date_str: str) -> tuple[str, dict | None]:
     """Look up a Grateful Dead setlist for a YYYY-MM-DD date on setlist.fm.
 
@@ -71,6 +116,10 @@ def lookup_setlist(date_str: str) -> tuple[str, dict | None]:
     if not SETLIST_FM_KEY:
         return DATE_UNVERIFIABLE, None
 
+    cached = _setlist_cache_get(date_str)
+    if cached is not None:
+        return cached
+
     # Convert YYYY-MM-DD → DD-MM-YYYY (setlist.fm format)
     parts = date_str.split("-")
     if len(parts) != 3:
@@ -87,7 +136,7 @@ def lookup_setlist(date_str: str) -> tuple[str, dict | None]:
                 "https://api.setlist.fm/rest/1.0/search/setlists",
                 params={"artistName": "Grateful Dead", "date": sfm_date},
                 headers={"x-api-key": SETLIST_FM_KEY, "Accept": "application/json"},
-                timeout=5,
+                timeout=3,
             )
         except Exception as e:
             log.warning(f"Setlist.fm lookup failed for {date_str}: {e}")
@@ -96,11 +145,12 @@ def lookup_setlist(date_str: str) -> tuple[str, dict | None]:
         if resp.status_code != 429:
             break
         retry_after = resp.headers.get("Retry-After")
-        delay = float(retry_after) if (retry_after or "").replace(".", "", 1).isdigit() else 1.0
-        time.sleep(min(delay, 2.0))
+        delay = float(retry_after) if (retry_after or "").replace(".", "", 1).isdigit() else 0.5
+        time.sleep(min(delay, 1.0))
 
     # 404 is setlist.fm's "no setlists match" response — a definitive no-show.
     if resp.status_code == 404:
+        _setlist_cache_set(date_str, DATE_NOT_FOUND, None)
         return DATE_NOT_FOUND, None
     if resp.status_code != 200:
         # Still rate limited or a server error — don't trust or discard.
@@ -114,6 +164,7 @@ def lookup_setlist(date_str: str) -> tuple[str, dict | None]:
 
     setlists = data.get("setlist", [])
     if not setlists:
+        _setlist_cache_set(date_str, DATE_NOT_FOUND, None)
         return DATE_NOT_FOUND, None
 
     # Take the first result
@@ -134,47 +185,29 @@ def lookup_setlist(date_str: str) -> tuple[str, dict | None]:
     venue_name = venue_data.get("name", "")
     city = venue_data.get("city", {}).get("name", "")
 
-    return DATE_VERIFIED, {
+    setlist = {
         "sets": result,
         "venue": f"{venue_name}, {city}".strip(", "),
         "setlist_url": sl.get("url", ""),
     }
-
-def archive_id_exists(archive_id: str) -> bool:
-    """Confirm an archive.org identifier resolves to a real item.
-
-    Claude can hallucinate IDs, producing dead 'Listen' links. We fail OPEN
-    (return True) on network errors so a transient archive.org hiccup doesn't
-    strip a valid link.
-    """
-    if not archive_id:
-        return False
-    try:
-        resp = requests.get(f"https://archive.org/metadata/{archive_id}", timeout=4)
-        if resp.status_code != 200:
-            return False
-        return bool(resp.json().get("metadata"))
-    except Exception as e:
-        log.warning(f"Archive validation failed for {archive_id}: {e}")
-        return True
+    _setlist_cache_set(date_str, DATE_VERIFIED, setlist)
+    return DATE_VERIFIED, setlist
 
 def _enrich_recommendation(rec: dict) -> None:
-    """Verify a recommendation's date and attach its real setlist / archive id.
+    """Verify a recommendation's date and attach its real setlist.
 
     Mutates only the passed-in dict, so it is safe to run concurrently across
-    recommendations. The two network calls are the slow part of a /recommend
-    response after the model finishes.
+    recommendations. Archive.org IDs are intentionally NOT validated here —
+    Claude hallucinates most of them, and each metadata probe added seconds of
+    latency for little gain. The frontend builds a date-based search URL when
+    no ID is present.
     """
     status, setlist = lookup_setlist(rec.get("date"))
     rec["setlist"] = setlist  # populated only when the date is verified
     rec["date_verified"] = (status == DATE_VERIFIED)
     rec["_date_status"] = status  # internal — stripped before returning
-
-    # Drop hallucinated archive IDs so the frontend falls back to a search URL
-    aid = rec.get("archive_org_id")
-    if aid and not archive_id_exists(aid):
-        log.info(f"Dropping invalid archive id: {aid}")
-        rec["archive_org_id"] = None
+    # Prefer a search link over a guessed identifier.
+    rec["archive_org_id"] = None
 
 # ── App ───────────────────────────────────────────────────────────────────────
 @asynccontextmanager
@@ -293,6 +326,14 @@ def init_db() -> None:
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS setlist_cache (
+                show_date  TEXT PRIMARY KEY,
+                status     TEXT NOT NULL,
+                payload    TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
 
 init_db()
 
@@ -305,7 +346,7 @@ MONTH_NAMES = [
     "July", "August", "September", "October", "November", "December",
 ]
 HISTORY_MODEL = os.environ.get("HISTORY_MODEL", "claude-haiku-4-5")
-HISTORY_MAX_TOKENS = 2048
+HISTORY_MAX_TOKENS = 1600
 # MM-DD entries rarely need refreshing; 30 days is plenty for a daily feature.
 HISTORY_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
 _history_locks: dict[str, threading.Lock] = {}
@@ -430,8 +471,7 @@ def _verify_and_filter(data: dict) -> dict:
 
 HISTORY_SYSTEM_PROMPT = """You are a Grateful Dead historian. Given a calendar month and day, return the best Grateful Dead live performances that occurred on that exact date in any year between 1965 and 1995.
 
-Return ONLY valid JSON — no markdown fences, no commentary. Use this structure:
-
+Return ONLY valid JSON — no markdown fences, no commentary:
 {
   "vibe_interpretation": "1-2 sentences on what makes this date notable in Dead history",
   "recommendations": [
@@ -441,9 +481,8 @@ Return ONLY valid JSON — no markdown fences, no commentary. Use this structure
       "venue": "Barton Hall, Cornell University, Ithaca, NY",
       "era": "Hiatus & Return (1975–1977)",
       "vibe_match": 92,
-      "pitch": "2-3 sentences. Lead with a specific song, jam, or setlist fact. No vague praise.",
-      "key_moments": ["Three specific moments — name songs, name what happened"],
-      "archive_org_id": "gd1977-05-08.bman-mx.fixed.104013.flac2496",
+      "pitch": "1-2 sentences. Lead with a specific song, jam, or setlist fact. No vague praise.",
+      "key_moments": ["Two specific moments — name songs, name what happened"],
       "recording_type": "Soundboard",
       "recording_quality": "Brief note on tape quality",
       "caveats": null
@@ -510,46 +549,16 @@ def _prewarm_today_history() -> None:
         log.warning(f"History prewarm failed: {e}")
 
 # ── System Prompt ─────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are the Dead Vibe Matcher — an expert guide to the Grateful Dead's live catalog spanning 1965 to 1995. You have encyclopedic knowledge of every era, lineup, venue, and the musical character of the band's ~2,300 live performances.
+# Kept lean on purpose: shorter prompts + shorter outputs = much faster model
+# latency. Era knowledge is already in the model's training data; we only need
+# to steer format, honesty, and tone.
+SYSTEM_PROMPT = """You are the Dead Vibe Matcher. Match a user's vibe to real Grateful Dead live shows (1965–1995). Not studio albums — specific dates, venues, setlists.
 
-Your job: a user describes a vibe, mood, feeling, moment, or scenario — and you match them to the specific Grateful Dead shows that best deliver that experience. You are not recommending studio albums. You are recommending specific live performances — real dates, real venues, real setlists.
+Eras (use as tags): Primal Dead (1965–1968); Psychedelic Peak (1968–1970); Americana Pivot (1970–1971); Jazz Fusion Zenith (1972–1974); Hiatus & Return (1975–1977); Shakedown Street Era (1978–1979); Brent Mydland Era (1979–1990); Final Chapter (1990–1995).
 
-## YOUR KNOWLEDGE DOMAINS
-
-### Eras & Lineups
-- **Primal Dead (1965–1968)**: Raw, electric, garage psychedelia. Pigpen's blues grit. Short, explosive sets. Acid Tests and the Haight.
-- **Psychedelic Peak (1968–1970)**: The live Dead emerges. Extended Dark Stars, St. Stephens, long-form improvisation. Cosmic, searching, uncharted.
-- **Americana Pivot (1970–1971)**: Workingman's Dead and American Beauty reshape the repertoire. Country, folk, and gospel threads. Pigpen's last great stretch.
-- **Jazz Fusion Zenith (1972–1974)**: Keith Godchaux on keys. The Europe '72 tour. Fluid Playin' in the Band explorations, soaring Eyes of the World. The Wall of Sound in '74.
-- **Hiatus & Return (1975–1977)**: The '75 hiatus. The '76 comeback. Then 1977 — the Cornell '77 year — sweet spot of composed power and exploratory freedom. Terrapin Station arrives.
-- **Shakedown Street Era (1978–1979)**: Disco and funk influences. The Egypt shows. Shakedown Street and Fire on the Mountain become staples.
-- **Brent Mydland Era (1979–1990)**: Brent's keyboards add grit, soul, and emotional edge. Early '80s are underrated and aggressive. Late '80s Brent shows can be transcendent.
-- **Final Chapter (1990–1995)**: Vince Welnick and Bruce Hornsby rotate on keys. Capable of breathtaking moments. The 1995 run is bittersweet.
-
-### Musical Dimensions You Evaluate
-- **Jam Depth**: How far out does the improvisation go? Extended and exploratory, or tight and composed?
-- **Energy Level**: Barn-burner or slow-build meditation? Is the crowd feeding the band?
-- **Mood Spectrum**: Dark/psychedelic ↔ Light/joyful. Melancholy ↔ Euphoric. Cosmic ↔ Earthy.
-- **Setlist Architecture**: How does the show flow? The ">" (segue) symbol matters — a Scarlet > Fire is different from a standard Help > Slip > Franklin's.
-- **Song Selection**: Rare songs, bustouts, unusual pairings signal something special.
-- **Recording Quality**: Soundboard (SBD) vs. audience (AUD) recordings.
-
-### Vibe Translation
-You are fluent in translating non-Dead language into Dead language:
-- "Something chill for a rainy afternoon" → Mellow '77 shows, acoustic sets, Stella Blue > Morning Dew closers
-- "I want my face melted" → '69 Dark Stars, '74 Wall of Sound Playin's, '89 Brent-fueled second sets
-- "Road trip energy" → Upbeat '72–'73 shows, Truckin' > Smokestack Lightning jams, '77 Estimated > Eyes combos
-- "I'm going through something heavy" → Wharf Rat performances, late Brent era emotional peaks, '72 He's Gone
-- "Party music" → Shakedown Streets, '76–'77 Dancing in the Streets, '81 upbeat openers
-- "I've never listened to the Dead before" → Gateway shows: Cornell 5/8/77, Veneta 8/27/72, Europe '72 highlights
-- "Deep space exploration" → '68–'69 Dark Stars, '74 Seastones/space segments
-
-## YOUR RESPONSE FORMAT
-
-Return ONLY valid JSON — no markdown fences, no commentary before or after. Use this exact structure:
-
+Return ONLY valid JSON — no markdown fences, no commentary:
 {
-  "vibe_interpretation": "Your 1-2 sentence restatement of what the user is looking for, in Dead terms",
+  "vibe_interpretation": "1-2 sentences restating the request in Dead terms",
   "recommendations": [
     {
       "rank": 1,
@@ -557,28 +566,32 @@ Return ONLY valid JSON — no markdown fences, no commentary before or after. Us
       "venue": "Barton Hall, Cornell University, Ithaca, NY",
       "era": "Hiatus & Return (1975–1977)",
       "vibe_match": 92,
-      "pitch": "2-4 sentences. Lead with the most specific fact about this show — a song that ran long, a pairing that only happened once, a moment the band found something and chased it. Follow with a short punchy line about why that matters for this listener's vibe. No vague praise words — 'transcendent,' 'remarkable,' 'devastating,' 'stunning' are banned. Say what actually happened. Vary sentence length. One long, one short. Never the same rhythm twice in a row.",
-      "key_moments": [
-        "Be specific and uneven. One moment might be a single sentence, another might need two. Don't make them all the same length. Name the song, name what it did, skip the adjectives. 'Scarlet ran 11 minutes and never resolved the way you expect it to' beats 'a stunning Scarlet > Fire transition.' Three moments per show — no more."
-      ],
-      "archive_org_id": "gd1977-05-08.bman-mx.fixed.104013.flac2496",
+      "pitch": "1-2 sentences. Lead with a specific song, jam, or setlist fact. No vague praise.",
+      "key_moments": ["Two specific song moments — name the song and what happened"],
       "recording_type": "Soundboard",
-      "recording_quality": "Excellent — Betty Board, one of the best-sounding Dead tapes in existence",
+      "recording_quality": "Brief tape-quality note",
       "caveats": null
     }
   ],
-  "deeper_cut": "If you like these, you should also explore [brief suggestion for further listening]"
+  "deeper_cut": "One brief further-listening tip"
 }
 
-## RULES
-1. Always recommend real shows with real dates. Never fabricate a show or setlist. If unsure of a specific detail, flag it.
-2. Recommend 3–5 shows per query, ranked by vibe match. Lead with the strongest match.
-3. Don't default to the obvious. Cornell '77, Veneta '72, and Europe '72 are great, but dig deeper when appropriate.
-4. Respect the eras. Don't recommend a '89 show when someone explicitly wants early-'70s energy unless you explain why.
-5. Be honest about weak spots — rough audio, weak first sets, divisive elements. Flag them.
-6. Write like a knowledgeable friend who has heard this show 20 times, not a reviewer performing authority. Lead with what actually happened — a specific song, a specific moment, a specific quirk of this recording. Never use: transcendent, remarkable, devastating, crucial, noteworthy, stunning, or beautiful. Say what the music did, not how it made someone feel. Admit caveats plainly — "the first set is skippable" beats "the second set is where this show truly shines." Short sentences after long ones. Let the last line land without wrapping it up.
-7. Return ONLY valid JSON. No markdown, no preamble, no explanation outside the JSON structure.
+Rules:
+1. Real shows only — real dates and venues. Never invent a date. Prefer well-documented shows over obscure guesses.
+2. Return exactly the number of shows requested, ranked by vibe match.
+3. Dig past Cornell '77 / Veneta '72 / Europe '72 when the vibe allows.
+4. Respect requested eras. Flag weak spots honestly in caveats.
+5. Banned words: transcendent, remarkable, devastating, stunning, beautiful, crucial, noteworthy.
+6. JSON only.
 """
+
+# Fast path: Haiku (~8–12s). If too many dates fail setlist.fm verification we
+# fall back once to Sonnet (~25–35s) rather than returning a thin list.
+RECOMMEND_MODEL = os.environ.get("RECOMMEND_MODEL", "claude-haiku-4-5")
+RECOMMEND_FALLBACK_MODEL = os.environ.get("RECOMMEND_FALLBACK_MODEL", "claude-sonnet-4-6")
+# Keep output short so generation finishes quickly; scale with result count.
+def _recommend_max_tokens(num_results: int) -> int:
+    return min(2200, 700 + max(1, num_results) * 350)
 
 # ── Request Model ─────────────────────────────────────────────────────────────
 class VibeRequest(BaseModel):
@@ -628,31 +641,90 @@ def recommend(request: Request, payload: VibeRequest):
     if len(payload.prompt) > MAX_PROMPT_CHARS:
         raise HTTPException(413, f"Prompt too long (max {MAX_PROMPT_CHARS} characters)")
 
+    # Ask for extras as a buffer — setlist.fm drops hallucinated dates, and with
+    # a fast model we'd rather trim than under-deliver.
+    want = max(3, min(5, payload.num_results))
+    ask_for = 5  # always fetch a full slate; trim to `want` after verification
+
     # Build the user message with any filters the user chose
     parts = [f'Vibe request: "{payload.prompt}"']
     if payload.era:
         parts.append(f"Preferred era: {payload.era}")
     if payload.mood:
         parts.append(f"Mood refinement: {payload.mood}")
-    parts.append(f"Number of recommendations requested: {payload.num_results}")
+    parts.append(f"Number of recommendations requested: {ask_for}")
+    parts.append(
+        "Every date MUST be a real Grateful Dead concert. "
+        "If you are unsure a date is real, pick a different well-documented show instead of guessing."
+    )
     user_message = "\n".join(parts)
 
-    # Serve identical requests from cache (saves a Claude + setlist.fm round trip)
-    cache_key = user_message
+    # Cache key uses the user's requested count (not the buffer) so "find more"
+    # (n=5) doesn't collide with a prior n=3 response.
+    cache_key = (
+        f'Vibe request: "{payload.prompt}"\n'
+        + (f"Preferred era: {payload.era}\n" if payload.era else "")
+        + (f"Mood refinement: {payload.mood}\n" if payload.mood else "")
+        + f"Number of recommendations requested: {want}"
+    )
     cached = _cache_get(cache_key)
     if cached is not None:
         log.info(f"Cache hit: {payload.prompt[:80]}...")
         return cached
 
-    log.info(f"Vibe request: {payload.prompt[:80]}...")
+    log.info(f"Vibe request ({RECOMMEND_MODEL}): {payload.prompt[:80]}...")
+    t0 = time.time()
+    max_tokens = _recommend_max_tokens(ask_for)
 
     data = _call_claude(
         SYSTEM_PROMPT,
         user_message,
-        model="claude-opus-4-6",
-        max_tokens=4096,
+        model=RECOMMEND_MODEL,
+        max_tokens=max_tokens,
     )
+    t_claude = time.time() - t0
+
+    t1 = time.time()
     data = _verify_and_filter(data)
+    t_enrich = time.time() - t1
+
+    recs = data.get("recommendations", [])
+    used_model = RECOMMEND_MODEL
+
+    # Haiku is fast but sometimes invents dates. One Sonnet retry keeps the
+    # common case snappy while still filling out a full list when needed.
+    if (
+        len(recs) < want
+        and RECOMMEND_FALLBACK_MODEL
+        and RECOMMEND_FALLBACK_MODEL != RECOMMEND_MODEL
+    ):
+        log.info(
+            f"Fast model kept {len(recs)}/{want} — falling back to {RECOMMEND_FALLBACK_MODEL}"
+        )
+        t2 = time.time()
+        data = _call_claude(
+            SYSTEM_PROMPT,
+            user_message,
+            model=RECOMMEND_FALLBACK_MODEL,
+            max_tokens=max_tokens,
+        )
+        t_claude += time.time() - t2
+        t3 = time.time()
+        data = _verify_and_filter(data)
+        t_enrich += time.time() - t3
+        recs = data.get("recommendations", [])
+        used_model = RECOMMEND_FALLBACK_MODEL
+
+    # Trim buffer down to what the user asked for.
+    recs = recs[:want]
+    for i, rec in enumerate(recs, start=1):
+        rec["rank"] = i
+    data["recommendations"] = recs
+
+    log.info(
+        f"Recommend timing: model={used_model} claude={t_claude:.1f}s "
+        f"enrich={t_enrich:.1f}s total={t_claude + t_enrich:.1f}s results={len(recs)}"
+    )
 
     _cache_set(cache_key, data)
     return data
