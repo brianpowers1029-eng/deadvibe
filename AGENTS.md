@@ -3,6 +3,7 @@
 A minimal app that turns a "vibe" description into Grateful Dead live-show recommendations.
 
 - `app.py` — FastAPI backend (Claude-powered `/recommend`, `/history/today`, plus `/feedback`, `/subscribe`, `/health`). Runs on port 8000.
+- `shows_catalog.py` — curated verified Grateful Dead show dates used to ground `/recommend`.
 - `index.html` — static single-page frontend. Calls the backend at `API_BASE` (`http://localhost:8000`).
 - `requirements.txt` — Python dependencies.
 - `Procfile` — production start command (`uvicorn app:app`), used by hosts like Railway.
@@ -18,8 +19,9 @@ A minimal app that turns a "vibe" description into Grateful Dead live-show recom
 
 ### Required environment
 - `ANTHROPIC_API_KEY` is **required at import time** — `app.py` reads it via `os.environ["ANTHROPIC_API_KEY"]` at import, so the process crashes with `KeyError` before serving anything if it is unset. It must be a valid key for `/recommend` (core functionality) to work.
-- `/recommend` uses a fast/accurate hybrid: `RECOMMEND_MODEL` (default `claude-haiku-4-5`, ~8–12s) first; if setlist.fm drops too many dates it retries once with `RECOMMEND_FALLBACK_MODEL` (default `claude-sonnet-4-6`, ~25–35s). `/history/today` uses `HISTORY_MODEL` (default `claude-haiku-4-5`).
-- `SETLIST_FM_API_KEY` (optional) verifies dates and attaches real setlists; without it, setlist data is simply omitted (frontend handles gracefully). Lookups are cached in SQLite for 30 days. Archive.org IDs are not validated on the hot path — the frontend builds a date-based search link instead.
+- `/recommend` is catalog-grounded: Haiku (`RECOMMEND_MODEL`, default `claude-haiku-4-5`) picks only from `shows_catalog.py` (~150 verified dates), so it cannot invent obscure dates and never needs a slow Sonnet fallback. Typical latency ~8–15s. `/history/today` uses `HISTORY_MODEL` (default `claude-haiku-4-5`).
+- `SETLIST_FM_API_KEY` (optional) attaches real setlists (lookups cached in SQLite for 30 days). Catalog membership is the source of truth for date validity. Archive.org IDs are not validated on the hot path — the frontend builds a date-based search link instead.
+- `shows_catalog.py` — curated show list with `depth` tags (`gateway` / `classic` / `deep`). Deep-catalog quiz answers bias the candidate pool toward `deep` shows.
 - `ALLOWED_ORIGINS` (optional) restricts CORS; defaults to `*`.
 
 ### Gotchas
