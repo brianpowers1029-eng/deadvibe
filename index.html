@@ -244,6 +244,35 @@
     /* ── Resume last results ─────────────────────────────────── */
     .resume-row { margin-bottom: 14px; text-align: right; }
 
+    .library-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    .library-clear {
+      background: none;
+      border: none;
+      color: var(--amber);
+      font-family: inherit;
+      font-size: 0.78rem;
+      cursor: pointer;
+      text-decoration: underline;
+      white-space: nowrap;
+    }
+
+    .library-clear:hover { color: var(--amber-glow); }
+    .library-clear:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
     /* ── Option Tiles (quiz steps — smaller, 2-col grid) ────── */
     .option-grid {
       display: grid;
@@ -730,6 +759,12 @@
 
     .fb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+    .fb-btn[aria-pressed="true"] {
+      border-color: var(--amber);
+      background: rgba(200,137,10,0.18);
+      color: var(--amber-glow);
+    }
+
     .feedback-thanks { font-size: 0.8rem; color: var(--amber); font-style: italic; }
 
     /* ── Deeper Cut ──────────────────────────────────────────── */
@@ -890,6 +925,10 @@
   <div class="screen active" id="screen-home">
     <div class="resume-row" id="resume-row" style="display:none">
       <button type="button" class="btn-restart" onclick="resumeLast()">↩ Back to your last picks</button>
+    </div>
+    <div class="library-row" id="library-row" style="display:none">
+      <span id="library-summary"></span>
+      <button type="button" class="library-clear" onclick="clearLibrary()">Clear tape box</button>
     </div>
     <div class="screen-card">
       <div class="screen-q">What brings you here tonight?</div>
@@ -1343,6 +1382,53 @@ function refreshResumeButton() {
   document.getElementById('resume-row').style.display = loadLastResults() ? 'block' : 'none';
 }
 
+// Tape box: shows the listener has heard, plus favorites that steer the next match.
+// Stored only in this browser. Favorites are also treated as heard.
+function loadLibrary() {
+  const raw = storageGet('deadvibe_library');
+  const empty = { heard: {}, favorites: {} };
+  if (!raw) return empty;
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      heard: parsed.heard && typeof parsed.heard === 'object' ? parsed.heard : {},
+      favorites: parsed.favorites && typeof parsed.favorites === 'object' ? parsed.favorites : {},
+    };
+  } catch (_) { return empty; }
+}
+
+function saveLibrary(lib) {
+  storageSet('deadvibe_library', JSON.stringify(lib));
+  refreshLibraryStrip();
+}
+
+function libraryPayload() {
+  const lib = loadLibrary();
+  const exclude = Object.keys(lib.heard).slice(0, 200);
+  const favorites = Object.keys(lib.favorites).slice(0, 40);
+  const body = {};
+  if (exclude.length) body.exclude_dates = exclude;
+  if (favorites.length) body.favorite_dates = favorites;
+  return body;
+}
+
+function refreshLibraryStrip() {
+  const lib = loadLibrary();
+  const heard = Object.keys(lib.heard).length;
+  const fav = Object.keys(lib.favorites).length;
+  const row = document.getElementById('library-row');
+  if (!heard && !fav) { row.style.display = 'none'; return; }
+  row.style.display = 'flex';
+  const parts = [];
+  if (heard) parts.push(`Skipping ${heard} show${heard === 1 ? '' : 's'} you've already heard`);
+  if (fav) parts.push(`${fav} favorite${fav === 1 ? '' : 's'} guiding the next match`);
+  document.getElementById('library-summary').textContent = parts.join(' · ');
+}
+
+function clearLibrary() {
+  saveLibrary({ heard: {}, favorites: {} });
+}
+
 // ════════════════════════════════════════════════════════════════
 // LOADING STATE — rotate through status messages so a long Claude
 // call doesn't look like a frozen page.
@@ -1404,6 +1490,7 @@ function stopLoading() {
   }
 
   refreshResumeButton();
+  refreshLibraryStrip();
 
   // Quick search: skip the quiz entirely and go straight to results.
   document.getElementById('quick-form').addEventListener('submit', (e) => {
@@ -1630,7 +1717,8 @@ async function fetchOwnerPick() {
   const showList = chosen.map(s => `${s.date} at ${s.venue}`).join('; ');
   const prompt   = `Please give your full enthusiastic recommendation writeup for exactly these three specific Grateful Dead shows, which have been personally curated as all-time favorites: ${showList}. For each show, write a detailed, specific pitch about what makes it extraordinary — reference actual songs, jams, and moments. Treat each one as a gem worth discovering.`;
 
-  await fetchShows(prompt, null, 3, "Personal Favorites", 'Pulling up tonight\'s personal picks…', false);
+  // Curated trio is the point of this path, so don't drop shows the listener has heard.
+  await fetchShows(prompt, null, 3, "Personal Favorites", 'Pulling up tonight\'s personal picks…', false, false);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1686,13 +1774,15 @@ async function fetchAndRender({ url, options = {}, eyebrow, timeoutMs = 60000, l
   }
 }
 
-async function fetchShows(prompt, era, numResults, eyebrow, loadingMsg, allowMore = true) {
+async function fetchShows(prompt, era, numResults, eyebrow, loadingMsg, allowMore = true, respectLibrary = true) {
+  const body = { prompt, era: era || null, num_results: numResults };
+  if (respectLibrary) Object.assign(body, libraryPayload());
   await fetchAndRender({
     url: `${API_BASE}/recommend`,
     options: {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, era: era || null, num_results: numResults }),
+      body: JSON.stringify(body),
     },
     eyebrow,
     loadingMsg,
@@ -1804,15 +1894,24 @@ function renderResults(data, eyebrow) {
         </div>
         <a class="listen-btn" href="${archiveLink}" target="_blank" rel="noopener">▶ Listen on Archive.org</a>
       </div>
+      ${rec.date ? `<div class="feedback-row">
+        <span class="feedback-q">Your tape box</span>
+        <button type="button" class="fb-btn" data-tape="heard" aria-pressed="false" aria-label="Mark as heard">Heard it</button>
+        <button type="button" class="fb-btn" data-tape="favorite" aria-pressed="false" aria-label="Mark as favorite">★ Favorite</button>
+      </div>` : ''}
       <div class="feedback-row">
         <span class="feedback-q">Was this a good match?</span>
         <button type="button" class="fb-btn" data-match="yes" aria-label="Good match">👍</button>
         <button type="button" class="fb-btn" data-match="no" aria-label="Not a match">👎</button>
       </div>`;
 
-    card.querySelectorAll('.fb-btn').forEach(btn => {
+    card.querySelectorAll('.fb-btn[data-match]').forEach(btn => {
       btn.addEventListener('click', () => sendFeedback(card, rec, btn.dataset.match === 'yes'));
     });
+    card.querySelectorAll('.fb-btn[data-tape]').forEach(btn => {
+      btn.addEventListener('click', () => toggleTape(rec, btn.dataset.tape, card));
+    });
+    if (rec.date) syncTapeButtons(card, rec.date);
 
     container.appendChild(card);
   });
@@ -1845,6 +1944,37 @@ function renderResults(data, eyebrow) {
 // ════════════════════════════════════════════════════════════════
 // FEEDBACK — 👍/👎 votes persisted via the backend /feedback endpoint
 // ════════════════════════════════════════════════════════════════
+function syncTapeButtons(card, date) {
+  const lib = loadLibrary();
+  const heardBtn = card.querySelector('[data-tape="heard"]');
+  const favBtn = card.querySelector('[data-tape="favorite"]');
+  if (heardBtn) heardBtn.setAttribute('aria-pressed', lib.heard[date] ? 'true' : 'false');
+  if (favBtn) favBtn.setAttribute('aria-pressed', lib.favorites[date] ? 'true' : 'false');
+}
+
+function toggleTape(rec, kind, card) {
+  if (!rec.date) return;
+  const lib = loadLibrary();
+  const entry = { venue: rec.venue || '', ts: Date.now() };
+  if (kind === 'heard') {
+    if (lib.heard[rec.date]) {
+      delete lib.heard[rec.date];
+      delete lib.favorites[rec.date];
+    } else {
+      lib.heard[rec.date] = entry;
+    }
+  } else if (kind === 'favorite') {
+    if (lib.favorites[rec.date]) {
+      delete lib.favorites[rec.date];
+    } else {
+      lib.favorites[rec.date] = entry;
+      if (!lib.heard[rec.date]) lib.heard[rec.date] = entry;
+    }
+  }
+  saveLibrary(lib);
+  syncTapeButtons(card, rec.date);
+}
+
 async function sendFeedback(card, rec, isMatch) {
   const row = card.querySelector('.feedback-row');
   row.querySelectorAll('.fb-btn').forEach(b => b.disabled = true);
@@ -1901,6 +2031,7 @@ function restart() {
   document.getElementById('cards').innerHTML = '';
   document.querySelectorAll('.pick-hint').forEach(h => h.style.visibility = '');
   refreshResumeButton();
+  refreshLibraryStrip();
 
   // Reset tile selections
   document.querySelectorAll('.option-tile, .mini-tile').forEach(t => {
