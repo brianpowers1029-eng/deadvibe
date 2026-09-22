@@ -898,7 +898,10 @@ def recommend(request: Request, payload: VibeRequest):
 
     log.info(
         f"Vibe request ({RECOMMEND_MODEL}, {len(candidates)} candidates"
-        f"{', deep' if _wants_deep_catalog(payload.prompt) else ''}): "
+        f"{', deep' if _wants_deep_catalog(payload.prompt) else ''}"
+        f"{f', exclude={len(exclude)}' if exclude else ''}"
+        f"{f', favorites={len(favorites)}' if favorites else ''}"
+        f"{', heard-skipped' if honored_exclude else ''}): "
         f"{payload.prompt[:80]}..."
     )
     t0 = time.time()
