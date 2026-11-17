@@ -622,6 +622,7 @@ Rules:
 4. When the user wants deep/obscure cuts, prefer candidates tagged "deep" and avoid gateway classics (Cornell, Veneta).
 5. Banned words: transcendent, remarkable, devastating, stunning, beautiful, crucial, noteworthy.
 6. JSON only.
+7. If the user names a date that is not in the candidate list, do not mention that date, do not apologize for it, and do not substitute a different night at the same venue. Restate the mood and recommend only from the list.
 """
 
 RECOMMEND_MODEL = os.environ.get("RECOMMEND_MODEL", "claude-haiku-4-5")
@@ -633,6 +634,8 @@ CANDIDATE_POOL_SIZE = 16
 MAX_PER_YEAR = 3
 
 # Prompt phrases that mean "show the owner's list", not "run a vibe search".
+# The button also sends mode=owner. These phrases cover that button's prompt
+# and the older client that named three favorite dates inside a vibe request.
 _OWNER_LIST_PHRASES = (
     "owner's full list",
     "owners full list",
@@ -641,12 +644,15 @@ _OWNER_LIST_PHRASES = (
     "owner's picks",
     "owner's favorite",
     "owner favorites",
+    "all-time favorites",
+    "personally curated",
     "essential shows",
     "all 25",
     "all 24",
     "the 25 favorite",
     "my 25 favorite",
 )
+OWNER_DATES = {pick["date"] for pick in OWNER_PICKS}
 
 # (needles in the prompt, substring of the catalog era name)
 _ERA_HINTS = (
@@ -706,7 +712,13 @@ def _wants_gateway(prompt: str) -> bool:
 
 
 def _wants_owner_list(prompt: str) -> bool:
-    p = prompt.lower()
+    p = (
+        (prompt or "")
+        .lower()
+        .replace("\u2019", "'")
+        .replace("\u2018", "'")
+        .replace("`", "'")
+    )
     return any(phrase in p for phrase in _OWNER_LIST_PHRASES)
 
 
@@ -814,7 +826,10 @@ def _select_candidates(prompt: str, era: Optional[str], pool_size: int = CANDIDA
     match the prompt's era, year, tags, or depth are ranked first. A prompt
     with no such clues gets an even spread across eras.
     """
-    shows = list(SHOW_CATALOG)
+    # Favorites are served only by the Personal Favorites button. A mood
+    # search never sees those dates, so the model cannot swap in a favorite
+    # or apologize for one that missed the shortlist.
+    shows = [s for s in SHOW_CATALOG if s["date"] not in OWNER_DATES]
     if era:
         era_l = era.lower()
         filtered = [
@@ -843,14 +858,34 @@ def _select_candidates(prompt: str, era: Optional[str], pool_size: int = CANDIDA
     if best <= 0:
         if len(shows) <= pool_size:
             random.shuffle(shows)
-            return shows
+            return _fill_shortlist(shows, pool_size)
         return _stratified_sample(shows, pool_size)
 
     scored.sort(key=lambda pair: (-pair[0], pair[1]["date"]))
     ranked = [show for _, show in scored]
     if len(ranked) <= pool_size:
-        return ranked
+        return _fill_shortlist(ranked, pool_size)
     return _diversify(ranked, pool_size)
+
+
+def _fill_shortlist(chosen: list[dict], pool_size: int) -> list[dict]:
+    """Keep the best matches first, then other non-favorite shows.
+
+    Dropping the owner's dates can leave a narrow year with only one or two
+    remaining shows. The model still needs a full shortlist so a mood request
+    can return three recommendations.
+    """
+    if len(chosen) >= pool_size:
+        return chosen[:pool_size]
+    have = {show["date"] for show in chosen}
+    rest = [
+        show for show in SHOW_CATALOG
+        if show["date"] not in have and show["date"] not in OWNER_DATES
+    ]
+    need = pool_size - len(chosen)
+    if len(rest) <= need:
+        return chosen + rest
+    return chosen + _stratified_sample(rest, need)
 
 
 def _format_candidates(candidates: list[dict]) -> str:
@@ -957,10 +992,11 @@ def _ground_recommendations(data: dict, want: int, allowed: Optional[set[str]] =
 
 # ── Request Model ─────────────────────────────────────────────────────────────
 class VibeRequest(BaseModel):
-    prompt: str
+    prompt: str = ""
     era: Optional[str] = None         # e.g. "1972-1974", "1977", "1980s"
     mood: Optional[str] = None        # e.g. "dark and psychedelic", "upbeat and fun"
     num_results: int = 3              # 3–5 recommendations
+    mode: Optional[str] = None        # "owner" returns the favorites list directly
 
 class FeedbackRequest(BaseModel):
     date: Optional[str] = None        # show date the user voted on
@@ -1003,18 +1039,20 @@ def history_today(
 @app.post("/recommend")
 @limiter.limit("10/minute")
 def recommend(request: Request, payload: VibeRequest):
+    # The favorites button sends mode=owner. Older pages instead paste three
+    # favorite dates into the prompt; those phrases take the same path. Either
+    # way this returns before a model call, so a favorite cannot be dropped
+    # for missing the mood shortlist.
+    if (payload.mode or "").strip().lower() == "owner" or _wants_owner_list(payload.prompt):
+        log.info("Owner list request — returning the full essentials list")
+        return _owner_list_payload()
+
     if not payload.prompt.strip():
         raise HTTPException(400, "Prompt cannot be empty")
     if len(payload.prompt) > MAX_PROMPT_CHARS:
         raise HTTPException(413, f"Prompt too long (max {MAX_PROMPT_CHARS} characters)")
 
     want = max(3, min(5, payload.num_results))
-
-    # Built from owner_picks.py on every request so a list edit is not stuck
-    # behind the six-hour response cache.
-    if _wants_owner_list(payload.prompt):
-        log.info("Owner list request — returning the full essentials list")
-        return _owner_list_payload()
 
     # Cache key — stable for identical vibe/era/count. Ranked shortlists are
     # deterministic, so a repeat of the same mood returns the cached writeup.

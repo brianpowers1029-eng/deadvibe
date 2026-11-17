@@ -24,7 +24,7 @@ A minimal app that turns a "vibe" description into Grateful Dead live-show recom
 - `/recommend` is catalog-grounded: Haiku (`RECOMMEND_MODEL`, default `claude-haiku-4-5`) picks only from `shows.db` (full 1965–1995 date list), so it cannot invent dates. Typical latency ~8–15s. `/history/today` uses `HISTORY_MODEL` (default `claude-haiku-4-5`).
 - `SHOWS_DB_PATH` (optional) overrides the shows SQLite path (default `shows.db`). Rebuild with `python3 scripts/build_shows_db.py`.
 - `SETLIST_FM_API_KEY` (optional) attaches real setlists (lookups cached in SQLite for 30 days). Catalog membership is the source of truth for date validity. When `shows.db` includes an `archive_org_id`, Listen links use it directly.
-- Deep-catalog quiz answers bias the candidate pool toward curated `depth=deep` shows. `/recommend` ranks a shortlist from the prompt (era, year, tags, depth) instead of sampling the catalog at random. A prompt that asks for the owner's favorites returns the full `owner_picks.py` list with no model call.
+- Deep-catalog quiz answers bias the candidate pool toward curated `depth=deep` shows. `/recommend` ranks a shortlist from the prompt (era, year, tags, depth) instead of sampling the catalog at random. Personal Favorites sends `mode=owner` and returns the full `owner_picks.py` list with no model call. Those dates are left out of mood shortlists.
 - The mood quiz is two steps for newcomers and three for everyone else. Experience and era advance on the tap. The vibe screen has the optional note and the Find button.
 - `ALLOWED_ORIGINS` (optional) restricts CORS; defaults to `*`.
 

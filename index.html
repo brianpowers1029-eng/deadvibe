@@ -1409,7 +1409,9 @@ function stopLoading() {
   try {
     const params = new URLSearchParams(location.search);
     const vibe = params.get('vibe');
-    if (vibe && vibe.trim()) {
+    if (params.get('mode') === 'owner' || wantsOwnerList(vibe || '')) {
+      fetchOwnerPick();
+    } else if (vibe && vibe.trim()) {
       const n = Math.min(5, Math.max(3, parseInt(params.get('n'), 10) || 3));
       fetchShows(vibe.trim(), params.get('era') || null, n, 'Shared picks');
     }
@@ -1643,16 +1645,16 @@ async function fetchHistory() {
 // OWNER'S PICKS
 // ════════════════════════════════════════════════════════════════
 async function fetchOwnerPick() {
-  // The backend recognizes this phrase and returns the whole list with no
-  // model call, so the page does not sit on a spinner while three dates are
-  // shuffled and then often dropped.
+  // mode=owner is the contract. The prompt phrases are a backup for older
+  // pages that still name three favorite dates inside a vibe request.
   await fetchShows(
     OWNER_LIST_PROMPT,
     null,
-    3,
+    25,
     "Personal Favorites",
     "Opening the owner's list…",
     false,
+    "owner",
   );
 }
 
@@ -1709,17 +1711,19 @@ async function fetchAndRender({ url, options = {}, eyebrow, timeoutMs = 60000, l
   }
 }
 
-async function fetchShows(prompt, era, numResults, eyebrow, loadingMsg, allowMore = true) {
+async function fetchShows(prompt, era, numResults, eyebrow, loadingMsg, allowMore = true, mode = null) {
+  const body = { prompt, era: era || null, num_results: numResults };
+  if (mode) body.mode = mode;
   await fetchAndRender({
     url: `${API_BASE}/recommend`,
     options: {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, era: era || null, num_results: numResults }),
+      body: JSON.stringify(body),
     },
     eyebrow,
     loadingMsg,
-    query: { prompt, era: era || null, numResults, eyebrow, allowMore },
+    query: { prompt, era: era || null, numResults, eyebrow, allowMore, mode },
   });
 }
 
@@ -1730,8 +1734,7 @@ function updateResultsActions() {
   const actions = document.getElementById('results-actions');
   if (!lastQuery) { actions.style.display = 'none'; return; }
   actions.style.display = 'flex';
-  // Hide "more" at the 5-show maximum, or when the query pins specific shows
-  // (Personal Favorites always describes exactly three curated picks).
+  // Hide "more" at the 5-show maximum. Personal Favorites is the whole list.
   const canMore = lastQuery.allowMore !== false && lastQuery.numResults < 5;
   document.getElementById('more-btn').style.display = canMore ? '' : 'none';
   const shareBtn = document.getElementById('share-btn');
@@ -1754,6 +1757,7 @@ async function fetchMore() {
 function buildShareUrl() {
   const params = new URLSearchParams();
   params.set('vibe', lastQuery.prompt);
+  if (lastQuery.mode) params.set('mode', lastQuery.mode);
   if (lastQuery.era) params.set('era', lastQuery.era);
   if (lastQuery.numResults && lastQuery.numResults !== 3) params.set('n', lastQuery.numResults);
   return `${location.origin}${location.pathname}?${params.toString()}`;
