@@ -1010,6 +1010,12 @@ def recommend(request: Request, payload: VibeRequest):
 
     want = max(3, min(5, payload.num_results))
 
+    # Built from owner_picks.py on every request so a list edit is not stuck
+    # behind the six-hour response cache.
+    if _wants_owner_list(payload.prompt):
+        log.info("Owner list request — returning the full essentials list")
+        return _owner_list_payload()
+
     # Cache key — stable for identical vibe/era/count. Ranked shortlists are
     # deterministic, so a repeat of the same mood returns the cached writeup.
     cache_key = (
@@ -1022,14 +1028,6 @@ def recommend(request: Request, payload: VibeRequest):
     if cached is not None:
         log.info(f"Cache hit: {payload.prompt[:80]}...")
         return cached
-
-    # The owner's list is data we already have. Don't spend a model call on
-    # three random dates from it.
-    if _wants_owner_list(payload.prompt):
-        log.info("Owner list request — returning the full essentials list")
-        data = _owner_list_payload()
-        _cache_set(cache_key, data)
-        return data
 
     candidates = _select_candidates(payload.prompt, payload.era)
     if len(candidates) < want:
