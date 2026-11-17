@@ -7,10 +7,10 @@ Checked against setlist.fm, dead.net, jerrybase, and the show catalog:
 - Providence Civic Center in June 1974 is 1974-06-26. 1974-06-23 is Miami.
 - Barton Hall, Cornell, in 1981 is 1981-05-16. There is no 1981-05-28 show.
 - The Academy of Music run is March 21–23 and 25–28, 1972. March 24 was the
-  night off. 1972-03-23 is the full show next to that night, and the only
-  Dark Star of the run. March 26 is the Dave's Picks 14 night.
+  night off. The owner's tape from that run is 1972-03-26 (Dave's Picks 14).
+  Bo Diddley played the Hell's Angels benefit on 1972-03-25.
 - Grateful Dead played Penn State Rec Hall on 1979-05-08 and 1980-05-06.
-  There is no November 1979 Penn State show. 1979-05-08 is the 1979 one.
+  The owner's show is 1980-05-06.
 """
 
 OWNER_PICKS = [
@@ -21,7 +21,7 @@ OWNER_PICKS = [
     {"date": "1973-06-10", "venue": "RFK Stadium, Washington, DC"},
     {"date": "1980-05-16", "venue": "Nassau Coliseum, Uniondale, NY"},
     {"date": "1971-04-26", "venue": "Fillmore East, New York, NY"},
-    {"date": "1972-03-23", "venue": "Academy of Music, New York, NY"},
+    {"date": "1972-03-26", "venue": "Academy of Music, New York, NY"},
     {"date": "1974-06-26", "venue": "Providence Civic Center, Providence, RI"},
     {"date": "1981-03-09", "venue": "Madison Square Garden, New York, NY"},
     {"date": "1970-06-24", "venue": "Capitol Theatre, Port Chester, NY"},
@@ -38,5 +38,5 @@ OWNER_PICKS = [
     {"date": "1981-05-06", "venue": "Nassau Coliseum, Uniondale, NY"},
     {"date": "1977-09-03", "venue": "Raceway Park, Englishtown, NJ"},
     {"date": "1972-04-17", "venue": "Tivoli Concert Hall, Copenhagen, Denmark"},
-    {"date": "1979-05-08", "venue": "Recreation Hall, Penn State University, State College, PA"},
+    {"date": "1980-05-06", "venue": "Recreation Hall, Penn State University, University Park, PA"},
 ]
