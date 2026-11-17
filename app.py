@@ -30,7 +30,7 @@ import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from owner_picks import OWNER_PICKS
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -90,6 +90,11 @@ SETLIST_FM_KEY = os.environ.get("SETLIST_FM_API_KEY", "")
 
 # Guard against oversized prompts blowing up token usage / cost.
 MAX_PROMPT_CHARS = 2000
+
+# Personal library dates sent by the browser (heard / favorited shows).
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+MAX_LIBRARY_DATES = 200
+MAX_LIBRARY_PROMPT_DATES = 15
 
 # Date-verification statuses returned by lookup_setlist().
 DATE_VERIFIED = "verified"          # setlist.fm has a Grateful Dead show on this date
@@ -711,6 +716,35 @@ def _wants_gateway(prompt: str) -> bool:
     ))
 
 
+def _clean_catalog_dates(dates: Optional[list[str]], limit: int = MAX_LIBRARY_DATES) -> list[str]:
+    """Keep unique catalog dates, in the order the client sent them."""
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in dates or []:
+        date = (raw or "").strip()
+        if not DATE_RE.fullmatch(date) or date not in CATALOG_DATES or date in seen:
+            continue
+        seen.add(date)
+        cleaned.append(date)
+        if len(cleaned) >= limit:
+            break
+    return cleaned
+
+
+def _format_known_shows(dates: list[str], limit: int = MAX_LIBRARY_PROMPT_DATES) -> str:
+    bits = []
+    for date in dates[:limit]:
+        show = SHOWS_BY_DATE.get(date)
+        if not show:
+            continue
+        bits.append(f"{date} ({show['era']})")
+    extra = len(dates) - len(bits)
+    text = ", ".join(bits)
+    if extra > 0:
+        text += f", and {extra} more"
+    return text
+
+
 def _wants_owner_list(prompt: str) -> bool:
     p = (
         (prompt or "")
@@ -818,13 +852,23 @@ def _stratified_sample(shows: list[dict], pool_size: int) -> list[dict]:
     return picked
 
 
-def _select_candidates(prompt: str, era: Optional[str], pool_size: int = CANDIDATE_POOL_SIZE) -> list[dict]:
+def _select_candidates(
+    prompt: str,
+    era: Optional[str],
+    pool_size: int = CANDIDATE_POOL_SIZE,
+    exclude: Optional[set[str]] = None,
+    min_keep: int = 3,
+) -> tuple[list[dict], bool]:
     """Rank a shortlist the model is allowed to choose from.
 
     A random slice of 2,000 shows was why mood requests missed and why a
     request for specific favorites could not see those dates. Shows that
     match the prompt's era, year, tags, or depth are ranked first. A prompt
     with no such clues gets an even spread across eras.
+
+    Returns the candidate list and whether already-heard dates were actually
+    removed. A tiny remaining pool keeps those dates so the request still
+    returns shows.
     """
     # Favorites are served only by the Personal Favorites button. A mood
     # search never sees those dates, so the model cannot swap in a favorite
@@ -852,24 +896,32 @@ def _select_candidates(prompt: str, era: Optional[str], pool_size: int = CANDIDA
         preferred = [s for s in shows if s.get("depth") in ("gateway", "classic")]
         shows = preferred or shows
 
+    honored_exclude = False
+    if exclude:
+        filtered = [s for s in shows if s["date"] not in exclude]
+        if len(filtered) >= min_keep:
+            shows = filtered
+            honored_exclude = True
+    blocked = exclude if honored_exclude else set()
+
     signals = _match_signals(prompt)
     scored = [( _score_show(show, signals), show) for show in shows]
     best = max((score for score, _ in scored), default=0)
     if best <= 0:
         if len(shows) <= pool_size:
             random.shuffle(shows)
-            return _fill_shortlist(shows, pool_size)
-        return _stratified_sample(shows, pool_size)
+            return _fill_shortlist(shows, pool_size, blocked), honored_exclude
+        return _stratified_sample(shows, pool_size), honored_exclude
 
     scored.sort(key=lambda pair: (-pair[0], pair[1]["date"]))
     ranked = [show for _, show in scored]
     if len(ranked) <= pool_size:
-        return _fill_shortlist(ranked, pool_size)
-    return _diversify(ranked, pool_size)
+        return _fill_shortlist(ranked, pool_size, blocked), honored_exclude
+    return _diversify(ranked, pool_size), honored_exclude
 
 
-def _fill_shortlist(chosen: list[dict], pool_size: int) -> list[dict]:
-    """Keep the best matches first, then other non-favorite shows.
+def _fill_shortlist(chosen: list[dict], pool_size: int, blocked: Optional[set[str]] = None) -> list[dict]:
+    """Keep the best matches first, then other non-favorite, unheard shows.
 
     Dropping the owner's dates can leave a narrow year with only one or two
     remaining shows. The model still needs a full shortlist so a mood request
@@ -877,10 +929,13 @@ def _fill_shortlist(chosen: list[dict], pool_size: int) -> list[dict]:
     """
     if len(chosen) >= pool_size:
         return chosen[:pool_size]
+    skip = blocked or set()
     have = {show["date"] for show in chosen}
     rest = [
         show for show in SHOW_CATALOG
-        if show["date"] not in have and show["date"] not in OWNER_DATES
+        if show["date"] not in have
+        and show["date"] not in OWNER_DATES
+        and show["date"] not in skip
     ]
     need = pool_size - len(chosen)
     if len(rest) <= need:
@@ -949,17 +1004,24 @@ def _owner_list_payload() -> dict:
     }
 
 
-def _ground_recommendations(data: dict, want: int, allowed: Optional[set[str]] = None) -> dict:
+def _ground_recommendations(
+    data: dict,
+    want: int,
+    allowed: Optional[set[str]] = None,
+    exclude: Optional[set[str]] = None,
+) -> dict:
     """Keep only catalog dates and fill venue/era from the catalog.
 
     `allowed` is the shortlist we showed the model. Dates outside it are
     dropped so a mood request cannot wander back to an unrelated classic.
+    `exclude` holds shows the listener has already heard.
     """
+    blocked = exclude or set()
     kept = []
     seen = set()
     for rec in data.get("recommendations", []):
         date = (rec.get("date") or "").strip()
-        if date not in CATALOG_DATES or date in seen:
+        if date not in CATALOG_DATES or date in seen or date in blocked:
             continue
         if allowed is not None and date not in allowed:
             continue
@@ -996,6 +1058,8 @@ class VibeRequest(BaseModel):
     era: Optional[str] = None         # e.g. "1972-1974", "1977", "1980s"
     mood: Optional[str] = None        # e.g. "dark and psychedelic", "upbeat and fun"
     num_results: int = 3              # 3–5 recommendations
+    exclude_dates: list[str] = Field(default_factory=list)    # shows the listener has already heard
+    favorite_dates: list[str] = Field(default_factory=list)   # shows they marked as favorites
     mode: Optional[str] = None        # "owner" returns the favorites list directly
 
 class FeedbackRequest(BaseModel):
@@ -1053,13 +1117,20 @@ def recommend(request: Request, payload: VibeRequest):
         raise HTTPException(413, f"Prompt too long (max {MAX_PROMPT_CHARS} characters)")
 
     want = max(3, min(5, payload.num_results))
+    exclude = _clean_catalog_dates(payload.exclude_dates)
+    favorites = _clean_catalog_dates(payload.favorite_dates)
+    exclude_set = set(exclude)
 
-    # Cache key — stable for identical vibe/era/count. Ranked shortlists are
-    # deterministic, so a repeat of the same mood returns the cached writeup.
+    # Cache key — stable for identical vibe/era/count/library. Ranked
+    # shortlists are deterministic, so a repeat of the same mood returns the
+    # cached writeup. Empty library lists are omitted so older cached
+    # responses still hit.
     cache_key = (
         f'Vibe request: "{payload.prompt}"\n'
         + (f"Preferred era: {payload.era}\n" if payload.era else "")
         + (f"Mood refinement: {payload.mood}\n" if payload.mood else "")
+        + (f"Exclude: {','.join(sorted(exclude))}\n" if exclude else "")
+        + (f"Favorites: {','.join(sorted(favorites))}\n" if favorites else "")
         + f"Number of recommendations requested: {want}"
     )
     cached = _cache_get(cache_key)
@@ -1067,7 +1138,9 @@ def recommend(request: Request, payload: VibeRequest):
         log.info(f"Cache hit: {payload.prompt[:80]}...")
         return cached
 
-    candidates = _select_candidates(payload.prompt, payload.era)
+    candidates, honored_exclude = _select_candidates(
+        payload.prompt, payload.era, exclude=exclude_set, min_keep=want,
+    )
     if len(candidates) < want:
         raise HTTPException(500, "Show catalog too small for this filter — try another era")
 
@@ -1081,6 +1154,22 @@ def recommend(request: Request, payload: VibeRequest):
             "The listener wants deep catalog / underrated shows. "
             "Prefer depth=deep candidates; avoid gateway classics."
         )
+    if favorites:
+        parts.append(
+            "The listener favorited these shows — lean toward the same era and "
+            "energy, and do not repeat the dates: "
+            + _format_known_shows(favorites)
+        )
+    if exclude and honored_exclude:
+        parts.append(
+            "The listener has already heard these shows — do not recommend them: "
+            + _format_known_shows(exclude)
+        )
+    elif exclude:
+        parts.append(
+            "The listener has already heard many shows in this lane. Prefer dates "
+            "they have not heard when the candidate list allows it."
+        )
     parts.append(f"Number of recommendations requested: {want}")
     parts.append(
         "Pick ONLY from this candidate list, which is already ranked for the vibe "
@@ -1091,7 +1180,10 @@ def recommend(request: Request, payload: VibeRequest):
 
     log.info(
         f"Vibe request ({RECOMMEND_MODEL}, {len(candidates)} candidates"
-        f"{', deep' if _wants_deep_catalog(payload.prompt) else ''}): "
+        f"{', deep' if _wants_deep_catalog(payload.prompt) else ''}"
+        f"{f', exclude={len(exclude)}' if exclude else ''}"
+        f"{f', favorites={len(favorites)}' if favorites else ''}"
+        f"{', heard-skipped' if honored_exclude else ''}): "
         f"{payload.prompt[:80]}..."
     )
     t0 = time.time()
@@ -1106,7 +1198,10 @@ def recommend(request: Request, payload: VibeRequest):
     t1 = time.time()
     # Constrain to catalog dates (drops any invented ones) and attach setlists
     # in parallel for the kept shows only.
-    data = _ground_recommendations(data, want, allowed={s["date"] for s in candidates})
+    blocked = exclude_set if honored_exclude else set()
+    data = _ground_recommendations(
+        data, want, allowed={s["date"] for s in candidates}, exclude=blocked,
+    )
 
     # If the model somehow returned fewer than wanted, top up from candidates
     # that weren't already chosen — still no second LLM call.
@@ -1114,7 +1209,7 @@ def recommend(request: Request, payload: VibeRequest):
     if len(have) < want:
         fillers = []
         for s in candidates:
-            if s["date"] in have:
+            if s["date"] in have or s["date"] in blocked:
                 continue
             fillers.append(s)
             have.add(s["date"])
