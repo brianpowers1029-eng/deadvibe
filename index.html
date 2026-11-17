@@ -385,6 +385,7 @@
 
     textarea:focus { border-color: var(--amber-dim); }
     textarea::placeholder { color: var(--muted); font-style: italic; }
+    textarea.vibe-note { min-height: 72px; margin-top: 16px; }
 
     .skip-note {
       font-size: 0.8rem;
@@ -900,7 +901,7 @@
           <span class="path-icon">🎧</span>
           <span class="path-text">
             <span class="path-label">Describe my mood</span>
-            <span class="path-desc">Answer a few questions and we'll match you with the perfect show for how you're feeling right now.</span>
+            <span class="path-desc">Two or three taps. We rank the catalog for that mood, then write up the best fits.</span>
           </span>
         </button>
 
@@ -917,7 +918,7 @@
           <span class="path-icon">🎸</span>
           <span class="path-text">
             <span class="path-label">Personal Favorites</span>
-            <span class="path-desc">No time for questions? Get a hand-picked recommendation from the site owner's personal list of 25 essential shows.</span>
+            <span class="path-desc">The owner's whole list of essential shows, immediately — not a random three.</span>
           </span>
         </button>
 
@@ -971,7 +972,7 @@
       </div>
       <div class="nav-row">
         <button class="btn-back" onclick="goBack()">← Back</button>
-        <span class="pick-hint">Pick one to continue</span>
+        <span class="pick-hint">Tap a choice to continue</span>
         <button class="btn-next" id="next-experience" disabled onclick="advance()">Next →</button>
       </div>
     </div>
@@ -1006,10 +1007,12 @@
           <span class="tile-desc">I want something that hits me in the chest</span>
         </button>
       </div>
+      <textarea id="vibe-note-simple" class="vibe-note" placeholder="Optional — add a detail, like &quot;rainy afternoon&quot; or &quot;something with an acoustic set&quot;"></textarea>
+      <span class="skip-note">Optional. Pick a mood, then find the show.</span>
       <div class="nav-row">
         <button class="btn-back" onclick="goBack()">← Back</button>
-        <span class="pick-hint">Pick one to continue</span>
-        <button class="btn-next" id="next-vibe-simple" disabled onclick="advance()">Next →</button>
+        <span class="pick-hint">Pick a mood</span>
+        <button class="btn-next" id="next-vibe-simple" disabled onclick="submitVibe()">Find my show →</button>
       </div>
     </div>
   </div>
@@ -1060,7 +1063,7 @@
       </div>
       <div class="nav-row">
         <button class="btn-back" onclick="goBack()">← Back</button>
-        <span class="pick-hint">Pick one to continue</span>
+        <span class="pick-hint">Tap a choice to continue</span>
         <button class="btn-next" id="next-era" disabled onclick="advance()">Next →</button>
       </div>
     </div>
@@ -1105,10 +1108,12 @@
           <span class="tile-desc">Face melter, barn burner, full throttle</span>
         </button>
       </div>
+      <textarea id="vibe-note-deep" class="vibe-note" placeholder="Optional — a song, a city, a feeling. &quot;Dark Star that keeps going&quot; is plenty."></textarea>
+      <span class="skip-note">Optional. Find the show now, or fine-tune first.</span>
       <div class="nav-row">
         <button class="btn-back" onclick="goBack()">← Back</button>
-        <span class="pick-hint">Pick one to continue</span>
-        <button class="btn-next" id="next-vibe-deep" disabled onclick="advance()">Next →</button>
+        <button class="btn-back" onclick="showScreen('screen-deep-prefs')">Fine-tune</button>
+        <button class="btn-next" id="next-vibe-deep" disabled onclick="submitVibe()">Find my show →</button>
       </div>
     </div>
   </div>
@@ -1152,7 +1157,7 @@
 
       <div class="nav-row">
         <button class="btn-back" onclick="goBack()">← Back</button>
-        <button class="btn-next" onclick="advance()">Next →</button>
+        <button class="btn-next" onclick="submitVibe()">Find my show →</button>
       </div>
     </div>
   </div>
@@ -1261,39 +1266,23 @@ const API_BASE = (() => {
 // "keep the lights on" box under the results. Leave empty to hide it.
 const TIP_JAR_URL = "";
 
-// ════════════════════════════════════════════════════════════════
-// OWNER'S PICKS
-// Edit this list with your 20–25 favorite shows.
-// Format: { date: "YYYY-MM-DD", venue: "Full venue name and city" }
-// 3 shows will be picked at random each time someone hits "Personal Favorites"
-// ════════════════════════════════════════════════════════════════
-const OWNER_PICKS = [
-  // ── Brian's personal favorites — edit dates/venues any time ──
-  { date: "1972-08-27", venue: "Oregon Country Fair, Veneta, OR" },
-  { date: "1977-05-08", venue: "Barton Hall, Cornell University, Ithaca, NY" },
-  { date: "1977-06-07", venue: "Winterland Arena, San Francisco, CA" },
-  { date: "1973-12-18", venue: "Curtis Hixon Hall, Tampa, FL" },
-  { date: "1973-06-10", venue: "RFK Stadium, Washington, DC" },
-  { date: "1980-05-16", venue: "Nassau Coliseum, Uniondale, NY" },
-  { date: "1971-04-26", venue: "Fillmore East, New York, NY" },
-  { date: "1972-03-24", venue: "Academy of Music, New York, NY" },
-  { date: "1974-06-23", venue: "Providence Civic Center, Providence, RI" },
-  { date: "1981-03-09", venue: "Madison Square Garden, New York, NY" },
-  { date: "1970-06-24", venue: "Capitol Theatre, Port Chester, NY" },
-  { date: "1970-05-02", venue: "Harpur College, Binghamton, NY" },
-  { date: "1978-07-08", venue: "Red Rocks Amphitheatre, Morrison, CO" },
-  { date: "1972-05-25", venue: "Lyceum Theatre, London, UK" },
-  { date: "1972-05-26", venue: "Lyceum Theatre, London, UK" },
-  { date: "1989-04-02", venue: "Pittsburgh Civic Arena, Pittsburgh, PA" },
-  { date: "1989-07-07", venue: "JFK Stadium, Philadelphia, PA" },
-  { date: "1972-09-21", venue: "The Spectrum, Philadelphia, PA" },
-  { date: "1981-05-28", venue: "Barton Hall, Cornell University, Ithaca, NY" },
-  { date: "1978-12-31", venue: "Winterland Arena, San Francisco, CA" },
-  { date: "1973-10-19", venue: "Myriad Convention Center, Oklahoma City, OK" },
-  { date: "1981-05-06", venue: "Nassau Coliseum, Uniondale, NY" },
-  { date: "1977-09-03", venue: "Raceway Park, Englishtown, NJ" },
-  { date: "1972-04-17", venue: "Tivoli Concert Hall, Copenhagen, Denmark" },
-];
+// Personal Favorites asks the backend for the full list in owner_picks.py.
+// The phrase is stable so the response is cached and shareable.
+const OWNER_LIST_PROMPT = "Show me the owner's full list of personal favorite Grateful Dead shows — every essential show, not a sample.";
+
+function wantsOwnerList(text) {
+  const p = (text || '').toLowerCase();
+  return [
+    "owner's full list",
+    "personal favorites",
+    "personal favorite shows",
+    "owner's picks",
+    "owner's favorite",
+    "essential shows",
+    "all 25",
+    "my 25 favorite",
+  ].some(phrase => p.includes(phrase));
+}
 
 // ════════════════════════════════════════════════════════════════
 // STATE
@@ -1410,6 +1399,7 @@ function stopLoading() {
     e.preventDefault();
     const prompt = document.getElementById('quick-input').value.trim();
     if (!prompt) return;
+    if (wantsOwnerList(prompt)) { fetchOwnerPick(); return; }
     fetchShows(prompt, null, 3, 'Your shows');
   });
 
@@ -1419,7 +1409,9 @@ function stopLoading() {
   try {
     const params = new URLSearchParams(location.search);
     const vibe = params.get('vibe');
-    if (vibe && vibe.trim()) {
+    if (params.get('mode') === 'owner' || wantsOwnerList(vibe || '')) {
+      fetchOwnerPick();
+    } else if (vibe && vibe.trim()) {
       const n = Math.min(5, Math.max(3, parseInt(params.get('n'), 10) || 3));
       fetchShows(vibe.trim(), params.get('era') || null, n, 'Shared picks');
     }
@@ -1442,7 +1434,7 @@ function startPath(p) {
     const savedExp = storageGet('deadvibe_exp');
     if (savedExp && !picks.experience) {
       const tile = document.querySelector(`.option-tile[data-group="experience"][data-value="${savedExp}"]`);
-      if (tile) pick(tile);
+      if (tile) pick(tile, false);
     }
   }
 }
@@ -1454,8 +1446,8 @@ function startPath(p) {
 // per-call and disagreed with each other).
 // ════════════════════════════════════════════════════════════════
 const STEP_MAPS = {
-  simple: { 'screen-experience': 1, 'screen-vibe-simple': 2, 'screen-freetext': 3 },
-  deep:   { 'screen-experience': 1, 'screen-era': 2, 'screen-vibe-deep': 3, 'screen-deep-prefs': 4, 'screen-freetext': 5 },
+  simple: { 'screen-experience': 1, 'screen-vibe-simple': 2 },
+  deep:   { 'screen-experience': 1, 'screen-era': 2, 'screen-vibe-deep': 3 },
 };
 
 function pathType() {
@@ -1463,15 +1455,32 @@ function pathType() {
     ? 'simple' : 'deep';
 }
 
+function choiceSummary() {
+  const labels = [];
+  document.querySelectorAll('.option-tile.selected .tile-label').forEach(el => {
+    labels.push(el.textContent.trim());
+  });
+  return labels.filter(Boolean).join(' · ');
+}
+
 function updateProgressFor(screenId) {
   const wrap = document.getElementById('progress-wrap');
   const map  = STEP_MAPS[pathType()];
   const step = map[screenId];
+  const summary = choiceSummary();
+  if (screenId === 'screen-deep-prefs') {
+    wrap.style.display = 'block';
+    document.getElementById('progress-fill').style.width = '100%';
+    document.getElementById('progress-label').textContent =
+      'Optional filters' + (summary ? ` · ${summary}` : '');
+    return;
+  }
   if (!step) { wrap.style.display = 'none'; return; }
   const total = Object.keys(map).length;
   wrap.style.display = 'block';
   document.getElementById('progress-fill').style.width = ((step / total) * 100) + '%';
-  document.getElementById('progress-label').textContent = `Step ${step} of ${total}`;
+  document.getElementById('progress-label').textContent =
+    `Step ${step} of ${total}` + (summary ? ` · ${summary}` : '');
 }
 
 function showScreen(targetId) {
@@ -1523,7 +1532,7 @@ function goBack() {
 // ════════════════════════════════════════════════════════════════
 // TILE SELECTION
 // ════════════════════════════════════════════════════════════════
-function pick(tile) {
+function pick(tile, andAdvance) {
   const group = tile.dataset.group;
   // Deselect siblings
   document.querySelectorAll(`.option-tile[data-group="${group}"]`).forEach(t => {
@@ -1533,6 +1542,16 @@ function pick(tile) {
   tile.classList.add('selected');
   tile.setAttribute('aria-pressed', 'true');
   picks[group] = tile.dataset.value;
+
+  // Changing experience starts the quiz over so a previous era or mood
+  // cannot linger in the summary or the prompt.
+  if (group === 'experience') {
+    ['era', 'vibe', 'member', 'recording', 'gem'].forEach(g => { picks[g] = null; });
+    document.querySelectorAll('.option-tile[data-group="era"], .option-tile[data-group="vibe"], .mini-tile').forEach(t => {
+      t.classList.remove('selected');
+      t.setAttribute('aria-pressed', 'false');
+    });
+  }
 
   // Enable the next button for this screen and clear its "pick one" hint
   const currentScreen = screenHistory[screenHistory.length - 1];
@@ -1547,9 +1566,12 @@ function pick(tile) {
   const hint = document.querySelector(`#${currentScreen} .pick-hint`);
   if (hint) hint.style.visibility = 'hidden';
 
-  // The experience pick decides whether the path is 3 or 5 steps — refresh
-  // the label so it never shows a stale total.
+  // Experience and era move forward on the tap. Vibe stays put so the
+  // optional note and Find button are one screen, not another step.
   updateProgressFor(currentScreen);
+  if (andAdvance !== false && (group === 'experience' || group === 'era')) {
+    advance();
+  }
 }
 
 function pickMini(tile) {
@@ -1583,8 +1605,10 @@ function buildMoodPrompt() {
   if (picks.recording) parts.push(`Recording quality preference: ${picks.recording}.`);
   if (picks.gem)       parts.push(`Show type preference: ${picks.gem}.`);
 
-  const freeText = document.getElementById('free-text').value.trim();
-  if (freeText) parts.push(`Additional context from the user: "${freeText}"`);
+  const notes = ['vibe-note-simple', 'vibe-note-deep', 'free-text']
+    .map(id => document.getElementById(id).value.trim())
+    .filter(Boolean);
+  if (notes.length) parts.push(`Additional context from the user: "${notes.join(' ')}"`);
 
   return parts.filter(Boolean).join(' ') || "Show me some great Grateful Dead shows.";
 }
@@ -1621,16 +1645,17 @@ async function fetchHistory() {
 // OWNER'S PICKS
 // ════════════════════════════════════════════════════════════════
 async function fetchOwnerPick() {
-  // Shuffle and pick 3, then sort by date: the backend caches on the exact
-  // prompt string, so a canonical order lets repeat trios hit the cache
-  // instead of paying for a fresh Claude call every click.
-  const shuffled = [...OWNER_PICKS].sort(() => Math.random() - 0.5);
-  const chosen   = shuffled.slice(0, 3).sort((a, b) => a.date.localeCompare(b.date));
-
-  const showList = chosen.map(s => `${s.date} at ${s.venue}`).join('; ');
-  const prompt   = `Please give your full enthusiastic recommendation writeup for exactly these three specific Grateful Dead shows, which have been personally curated as all-time favorites: ${showList}. For each show, write a detailed, specific pitch about what makes it extraordinary — reference actual songs, jams, and moments. Treat each one as a gem worth discovering.`;
-
-  await fetchShows(prompt, null, 3, "Personal Favorites", 'Pulling up tonight\'s personal picks…', false);
+  // mode=owner is the contract. The prompt phrases are a backup for older
+  // pages that still name three favorite dates inside a vibe request.
+  await fetchShows(
+    OWNER_LIST_PROMPT,
+    null,
+    25,
+    "Personal Favorites",
+    "Opening the owner's list…",
+    false,
+    "owner",
+  );
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1686,17 +1711,19 @@ async function fetchAndRender({ url, options = {}, eyebrow, timeoutMs = 60000, l
   }
 }
 
-async function fetchShows(prompt, era, numResults, eyebrow, loadingMsg, allowMore = true) {
+async function fetchShows(prompt, era, numResults, eyebrow, loadingMsg, allowMore = true, mode = null) {
+  const body = { prompt, era: era || null, num_results: numResults };
+  if (mode) body.mode = mode;
   await fetchAndRender({
     url: `${API_BASE}/recommend`,
     options: {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, era: era || null, num_results: numResults }),
+      body: JSON.stringify(body),
     },
     eyebrow,
     loadingMsg,
-    query: { prompt, era: era || null, numResults, eyebrow, allowMore },
+    query: { prompt, era: era || null, numResults, eyebrow, allowMore, mode },
   });
 }
 
@@ -1707,8 +1734,7 @@ function updateResultsActions() {
   const actions = document.getElementById('results-actions');
   if (!lastQuery) { actions.style.display = 'none'; return; }
   actions.style.display = 'flex';
-  // Hide "more" at the 5-show maximum, or when the query pins specific shows
-  // (Personal Favorites always describes exactly three curated picks).
+  // Hide "more" at the 5-show maximum. Personal Favorites is the whole list.
   const canMore = lastQuery.allowMore !== false && lastQuery.numResults < 5;
   document.getElementById('more-btn').style.display = canMore ? '' : 'none';
   const shareBtn = document.getElementById('share-btn');
@@ -1731,6 +1757,7 @@ async function fetchMore() {
 function buildShareUrl() {
   const params = new URLSearchParams();
   params.set('vibe', lastQuery.prompt);
+  if (lastQuery.mode) params.set('mode', lastQuery.mode);
   if (lastQuery.era) params.set('era', lastQuery.era);
   if (lastQuery.numResults && lastQuery.numResults !== 3) params.set('n', lastQuery.numResults);
   return `${location.origin}${location.pathname}?${params.toString()}`;
@@ -1772,7 +1799,8 @@ function renderResults(data, eyebrow) {
       ? `https://archive.org/details/${rec.archive_org_id}`
       : `https://archive.org/search?query=${encodeURIComponent('Grateful Dead ' + (rec.date || '') + ' ' + (rec.venue || ''))}&collection=GratefulDead`;
 
-    const pct   = rec.vibe_match || 0;
+    const showMatch = rec.vibe_match !== null && rec.vibe_match !== undefined;
+    const pct   = showMatch ? rec.vibe_match : 0;
     const rCls  = recClass(rec.recording_type);
     const mHTML = (rec.key_moments || []).map(m => `<li>${esc(m)}</li>`).join('');
 
@@ -1783,11 +1811,11 @@ function renderResults(data, eyebrow) {
           <div class="show-date">${esc(fmtDate(rec.date))}</div>
           <div class="show-venue">${esc(rec.venue || '')}</div>
         </div>
-        <div class="match-wrap" title="The AI's estimate of how closely this show fits what you asked for — a guide, not gospel">
+        ${showMatch ? `<div class="match-wrap" title="The AI's estimate of how closely this show fits what you asked for — a guide, not gospel">
           <div class="match-pct">${pct}%</div>
           <div class="match-lbl">Vibe Match</div>
           <div class="match-bar"><div class="match-fill" style="width:${pct}%"></div></div>
-        </div>
+        </div>` : ''}
       </div>
       <div class="card-body">
         <span class="era-tag">${esc(rec.era || '')}</span>
@@ -1897,6 +1925,8 @@ function restart() {
   path = null; experience = null; screenHistory = ['screen-home'];
   Object.keys(picks).forEach(k => picks[k] = null);
   document.getElementById('free-text').value = '';
+  document.getElementById('vibe-note-simple').value = '';
+  document.getElementById('vibe-note-deep').value = '';
   document.getElementById('quick-input').value = '';
   document.getElementById('cards').innerHTML = '';
   document.querySelectorAll('.pick-hint').forEach(h => h.style.visibility = '');
