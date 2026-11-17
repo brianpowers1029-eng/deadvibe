@@ -32,6 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from owner_picks import OWNER_PICKS
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -624,8 +625,62 @@ Rules:
 """
 
 RECOMMEND_MODEL = os.environ.get("RECOMMEND_MODEL", "claude-haiku-4-5")
-# How many catalog candidates to show the model (enough variety, small prompt).
-CANDIDATE_POOL_SIZE = 36
+# How many catalog candidates to show the model. Smaller than the old random
+# 36 because these are already ranked for the vibe, which keeps the prompt
+# short and the match on-mood.
+CANDIDATE_POOL_SIZE = 16
+# Don't let one calendar year crowd the shortlist.
+MAX_PER_YEAR = 3
+
+# Prompt phrases that mean "show the owner's list", not "run a vibe search".
+_OWNER_LIST_PHRASES = (
+    "owner's full list",
+    "owners full list",
+    "personal favorites",
+    "personal favorite shows",
+    "owner's picks",
+    "owner's favorite",
+    "owner favorites",
+    "essential shows",
+    "all 25",
+    "all 24",
+    "the 25 favorite",
+    "my 25 favorite",
+)
+
+# (needles in the prompt, substring of the catalog era name)
+_ERA_HINTS = (
+    (("primal", "acid test", "1965", "1966", "1967"), "primal dead"),
+    (("psychedelic", "dark star", "live/dead", "live dead", "1968", "1969"), "psychedelic peak"),
+    (("americana", "acoustic", "workingman", "pigpen", "1970", "1971"), "americana pivot"),
+    (("europe", "keith", "wall of sound", "jazzy", "playin", "1972", "1973", "1974"), "jazz fusion"),
+    (("1977", "cornell", "hiatus", "terrapin", "1975", "1976"), "hiatus & return"),
+    (("shakedown", "disco", "egypt", "red rocks", "1978"), "shakedown"),
+    (("brent", "1980", "1981", "1982", "1983", "1984", "1985", "1986", "1987", "1988", "1989"), "brent"),
+    (("hornsby", "vince", "welnick", "1990", "1991", "1992", "1993", "1994", "1995"), "final chapter"),
+)
+
+# Prompt word -> tag token stored on curated shows.
+_TAG_HINTS = {
+    "dark": "dark",
+    "psychedelic": "psychedelic",
+    "space": "dark_star",
+    "acoustic": "acoustic",
+    "mellow": "acoustic",
+    "outdoor": "outdoor",
+    "emotional": "emotional",
+    "jazzy": "jazzy",
+    "jazz": "jazzy",
+    "brent": "brent",
+    "keith": "keith",
+    "pigpen": "pigpen",
+    "europe": "europe72",
+    "gateway": "gateway",
+    "energetic": "energetic",
+    "energy": "energetic",
+    "cornell": "cornell",
+    "veneta": "veneta",
+}
 
 
 def _recommend_max_tokens(num_results: int) -> int:
@@ -650,8 +705,115 @@ def _wants_gateway(prompt: str) -> bool:
     ))
 
 
+def _wants_owner_list(prompt: str) -> bool:
+    p = prompt.lower()
+    return any(phrase in p for phrase in _OWNER_LIST_PHRASES)
+
+
+def _match_signals(prompt: str) -> dict:
+    """Pull era, tag, year, and depth clues out of a vibe prompt."""
+    p = prompt.lower()
+    eras = []
+    for needles, era_name in _ERA_HINTS:
+        if any(n in p for n in needles):
+            eras.append(era_name)
+    tags = set()
+    for word, tag in _TAG_HINTS.items():
+        if word in p:
+            tags.add(tag)
+    years = set(re.findall(r"\b(19[6-9]\d)\b", p))
+    if _wants_deep_catalog(prompt):
+        depth = "deep"
+    elif _wants_gateway(prompt):
+        depth = "gateway"
+    elif "classic" in p and "obscure" not in p:
+        depth = "classic"
+    else:
+        depth = None
+    return {"eras": eras, "tags": tags, "years": years, "depth": depth}
+
+
+def _score_show(show: dict, signals: dict) -> int:
+    """Higher means the show fits the prompt. Zero means we found no clue."""
+    score = 0
+    tags = set((show.get("tags") or "").split())
+    era = (show.get("era") or "").lower()
+    year = show["date"][:4]
+    if year in signals["years"]:
+        score += 8
+    for era_name in signals["eras"]:
+        if era_name in era:
+            score += 7
+    for tag in signals["tags"]:
+        if tag in tags:
+            score += 5
+    depth = show.get("depth")
+    if signals["depth"] == "deep":
+        if depth == "gateway":
+            score -= 8
+        elif depth == "deep" and tags:
+            score += 3
+    elif signals["depth"] == "gateway":
+        if depth == "gateway":
+            score += 8
+        elif depth == "classic":
+            score += 4
+    elif signals["depth"] == "classic":
+        if depth in ("classic", "gateway"):
+            score += 4
+    return score
+
+
+def _diversify(ranked: list[dict], pool_size: int) -> list[dict]:
+    """Take the best shows, capping how many can come from one year."""
+    picked = []
+    per_year: dict[str, int] = {}
+    overflow = []
+    for show in ranked:
+        year = show["date"][:4]
+        if per_year.get(year, 0) >= MAX_PER_YEAR:
+            overflow.append(show)
+            continue
+        picked.append(show)
+        per_year[year] = per_year.get(year, 0) + 1
+        if len(picked) >= pool_size:
+            return picked
+    for show in overflow:
+        picked.append(show)
+        if len(picked) >= pool_size:
+            break
+    return picked
+
+
+def _stratified_sample(shows: list[dict], pool_size: int) -> list[dict]:
+    """Spread a no-signal request across eras instead of one random clump."""
+    by_era: dict[str, list[dict]] = {}
+    for show in shows:
+        by_era.setdefault(show.get("era") or "", []).append(show)
+    eras = list(by_era)
+    random.shuffle(eras)
+    for bucket in by_era.values():
+        random.shuffle(bucket)
+    picked = []
+    while len(picked) < pool_size and any(by_era.values()):
+        for era in eras:
+            bucket = by_era.get(era) or []
+            if not bucket:
+                continue
+            picked.append(bucket.pop())
+            if len(picked) >= pool_size:
+                break
+    return picked
+
+
 def _select_candidates(prompt: str, era: Optional[str], pool_size: int = CANDIDATE_POOL_SIZE) -> list[dict]:
-    """Pick a diverse slice of the full show DB for the model to choose from."""
+    """Rank a shortlist the model is allowed to choose from.
+
+    A random slice of 2,000 shows was why mood requests missed and why a
+    request for specific favorites could not see those dates. Shows that
+    match the prompt's era, year, tags, or depth are ranked first. A prompt
+    with no such clues gets an even spread across eras.
+    """
     shows = list(SHOW_CATALOG)
     if era:
         era_l = era.lower()
@@ -659,7 +821,7 @@ def _select_candidates(prompt: str, era: Optional[str], pool_size: int = CANDIDA
             s for s in shows
             if era_l in (s.get("era") or "").lower() or era_l in (s.get("tags") or "")
         ]
-        # Also match year ranges like "1977" against the date.
+        # Also match a bare year like "1977" against the date.
         year_hits = [
             s for s in shows
             if era_l[:4].isdigit() and s["date"].startswith(era_l[:4])
@@ -668,40 +830,103 @@ def _select_candidates(prompt: str, era: Optional[str], pool_size: int = CANDIDA
 
     deep = _wants_deep_catalog(prompt)
     gateway = _wants_gateway(prompt)
-
     if deep:
-        preferred = [s for s in shows if s.get("depth") == "deep"]
-        secondary = [s for s in shows if s.get("depth") == "classic"]
-        # Almost no gateway shows for deep-catalog requests.
-        shows = preferred + secondary
+        preferred = [s for s in shows if s.get("depth") != "gateway"]
+        shows = preferred or shows
     elif gateway:
         preferred = [s for s in shows if s.get("depth") in ("gateway", "classic")]
-        secondary = [s for s in shows if s.get("depth") == "deep"]
-        shows = preferred + secondary[: max(0, pool_size // 3)]
+        shows = preferred or shows
 
-    if len(shows) <= pool_size:
-        random.shuffle(shows)
-        return shows
+    signals = _match_signals(prompt)
+    scored = [( _score_show(show, signals), show) for show in shows]
+    best = max((score for score, _ in scored), default=0)
+    if best <= 0:
+        if len(shows) <= pool_size:
+            random.shuffle(shows)
+            return shows
+        return _stratified_sample(shows, pool_size)
 
-    # Uniform sample across the (possibly depth-filtered) full era — with 2k+
-    # shows we don't want to only ever see the first half of the list.
-    return random.sample(shows, pool_size)
+    scored.sort(key=lambda pair: (-pair[0], pair[1]["date"]))
+    ranked = [show for _, show in scored]
+    if len(ranked) <= pool_size:
+        return ranked
+    return _diversify(ranked, pool_size)
 
 
 def _format_candidates(candidates: list[dict]) -> str:
     lines = []
     for s in candidates:
-        lines.append(f"- {s['date']} | {s['venue']} | {s['era']} | depth={s['depth']}")
+        tags = (s.get("tags") or "").strip()
+        extra = f" | {tags}" if tags else ""
+        lines.append(f"- {s['date']} | {s['venue']} | {s['era']} | depth={s['depth']}{extra}")
     return "\n".join(lines)
 
 
-def _ground_recommendations(data: dict, want: int) -> dict:
-    """Keep only catalog dates and fill venue/era from the catalog."""
+def _owner_list_payload() -> dict:
+    """The full essentials list, with no model call.
+
+    Dates that are not in the catalog are still returned, with the venue from
+    the owner's list, so a favorite cannot vanish just because the calendar
+    has no row for it.
+    """
+    recommendations = []
+    for index, pick in enumerate(OWNER_PICKS, start=1):
+        show = SHOWS_BY_DATE.get(pick["date"])
+        if show:
+            pitch = f"One of the owner's essential shows, from the {show['era'].split('(')[0].strip()}."
+            caveat = None
+            venue = show["venue"]
+            era = show["era"]
+            archive_id = show.get("archive_org_id")
+            verified = True
+        else:
+            pitch = (
+                "On the owner's list. This exact date is not in the show catalog, "
+                "so treat the venue as the owner's note rather than a confirmed bill."
+            )
+            caveat = "No catalog row for this date."
+            venue = pick["venue"]
+            era = ""
+            archive_id = None
+            verified = False
+        recommendations.append({
+            "rank": index,
+            "date": pick["date"],
+            "venue": venue,
+            "era": era,
+            "vibe_match": None,
+            "pitch": pitch,
+            "key_moments": [],
+            "recording_type": "Catalog",
+            "recording_quality": "Stream the transfer on archive.org",
+            "caveats": caveat,
+            "setlist": None,
+            "date_verified": verified,
+            "archive_org_id": archive_id,
+        })
+    return {
+        "vibe_interpretation": (
+            f"All {len(recommendations)} shows on the owner's essential list, "
+            "in the order they were written down."
+        ),
+        "recommendations": recommendations,
+        "deeper_cut": "Use Describe my mood when you want a show for tonight instead of the whole list.",
+    }
+
+
+def _ground_recommendations(data: dict, want: int, allowed: Optional[set[str]] = None) -> dict:
+    """Keep only catalog dates and fill venue/era from the catalog.
+
+    `allowed` is the shortlist we showed the model. Dates outside it are
+    dropped so a mood request cannot wander back to an unrelated classic.
+    """
     kept = []
     seen = set()
     for rec in data.get("recommendations", []):
         date = (rec.get("date") or "").strip()
         if date not in CATALOG_DATES or date in seen:
+            continue
+        if allowed is not None and date not in allowed:
             continue
         seen.add(date)
         catalog = SHOWS_BY_DATE[date]
@@ -785,8 +1010,8 @@ def recommend(request: Request, payload: VibeRequest):
 
     want = max(3, min(5, payload.num_results))
 
-    # Cache key — stable for identical vibe/era/count (candidates are resampled
-    # each miss, so the model still sees variety across cache TTLs).
+    # Cache key — stable for identical vibe/era/count. Ranked shortlists are
+    # deterministic, so a repeat of the same mood returns the cached writeup.
     cache_key = (
         f'Vibe request: "{payload.prompt}"\n'
         + (f"Preferred era: {payload.era}\n" if payload.era else "")
@@ -797,6 +1022,14 @@ def recommend(request: Request, payload: VibeRequest):
     if cached is not None:
         log.info(f"Cache hit: {payload.prompt[:80]}...")
         return cached
+
+    # The owner's list is data we already have. Don't spend a model call on
+    # three random dates from it.
+    if _wants_owner_list(payload.prompt):
+        log.info("Owner list request — returning the full essentials list")
+        data = _owner_list_payload()
+        _cache_set(cache_key, data)
+        return data
 
     candidates = _select_candidates(payload.prompt, payload.era)
     if len(candidates) < want:
@@ -813,7 +1046,10 @@ def recommend(request: Request, payload: VibeRequest):
             "Prefer depth=deep candidates; avoid gateway classics."
         )
     parts.append(f"Number of recommendations requested: {want}")
-    parts.append("Pick ONLY from this candidate list (date | venue | era | depth):")
+    parts.append(
+        "Pick ONLY from this candidate list, which is already ranked for the vibe "
+        "(best fits first). date | venue | era | depth:"
+    )
     parts.append(_format_candidates(candidates))
     user_message = "\n".join(parts)
 
@@ -834,7 +1070,7 @@ def recommend(request: Request, payload: VibeRequest):
     t1 = time.time()
     # Constrain to catalog dates (drops any invented ones) and attach setlists
     # in parallel for the kept shows only.
-    data = _ground_recommendations(data, want)
+    data = _ground_recommendations(data, want, allowed={s["date"] for s in candidates})
 
     # If the model somehow returned fewer than wanted, top up from candidates
     # that weren't already chosen — still no second LLM call.
